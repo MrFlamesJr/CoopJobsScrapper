@@ -15,8 +15,8 @@ try {
     throw "Docker Desktop is not installed. Install it before running this script."
 }
 
-Write-Host "Starting MySQL..."
-docker compose up -d --remove-orphans --wait mysql
+Write-Host "Starting MySQL, the API server, and the web app..."
+docker compose up -d --remove-orphans --wait mysql server web
 
 Write-Host "Starting the local scraper and Chrome browser..."
 & .\.venv\Scripts\python.exe -m app.main

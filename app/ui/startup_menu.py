@@ -21,12 +21,21 @@ class StartupMenu:
             )
 
         return self._ask(
-            "The database already contains jobs.",
+            "The database already contains jobs. Scraping again will delete and replace all existing data.",
             {
-                "1": ("Scrape", "scrape"),
-                "2": ("Placeholder", "placeholder"),
+                "1": ("Delete the database and scrape again", "reset_and_scrape"),
+                "2": ("Open the jobs web app", "open_web_app"),
             },
         )
+
+    def _confirm_overwrite(self):
+        while True:
+            answer = self.input_func("Are you sure you want to delete the database and scrape again? (y/n): ").strip().lower()
+            if answer in {"y", "yes"}:
+                return "reset_and_scrape"
+            if answer in {"n", "no"}:
+                return "cancel"
+            self.output_func("Please answer y or n.")
 
     def _ask(self, message, options):
         self.output_func(message)
@@ -36,5 +45,8 @@ class StartupMenu:
         while True:
             choice = self.input_func("Choose an option: ").strip()
             if choice in options:
-                return options[choice][1]
+                action = options[choice][1]
+                if action == "reset_and_scrape":
+                    return self._confirm_overwrite()
+                return action
             self.output_func("Please choose one of the listed options.")

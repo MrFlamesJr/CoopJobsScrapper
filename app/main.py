@@ -1,6 +1,7 @@
 import logging
 import os
 import subprocess
+import webbrowser
 from pathlib import Path
 
 import mysql.connector
@@ -19,6 +20,7 @@ from app.ui.startup_menu import StartupMenu
 
 SEARCH_URL = "https://experiential-learning.uottawa.ca/search"
 DATABASE_NAME = "coop_jobs"
+WEB_APP_URL = "http://localhost:5173"
 
 
 def configure_logging():
@@ -107,6 +109,23 @@ def scrape_jobs(database, logger):
             except WebDriverException:
                 logger.warning("Chrome browser was already closed.")
 
+    return scrape_completed
+
+
+def open_web_app(logger):
+    webbrowser.open(WEB_APP_URL)
+    logger.info("Jobs web app opened at %s.", WEB_APP_URL)
+
+
+def ask_to_open_web_app(input_func=input, output_func=print):
+    while True:
+        answer = input_func("Open the jobs web app now? (y/n): ").strip().lower()
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"n", "no"}:
+            return False
+        output_func("Please answer y or n.")
+
 
 def main():
     load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -116,9 +135,16 @@ def main():
         action = StartupMenu(database).choose_action()
         if action == "scrape":
             database.ensure()
-            scrape_jobs(database, logger)
-        elif action == "placeholder":
-            print("Hello world")
+            scrape_completed = scrape_jobs(database, logger)
+            if scrape_completed and ask_to_open_web_app():
+                open_web_app(logger)
+        elif action == "reset_and_scrape":
+            database.rebuild()
+            scrape_completed = scrape_jobs(database, logger)
+            if scrape_completed and ask_to_open_web_app():
+                open_web_app(logger)
+        elif action == "open_web_app":
+            open_web_app(logger)
     except mysql.connector.Error as exc:
         logger.error("Database setup failed: %s", exc)
     except KeyError as exc:

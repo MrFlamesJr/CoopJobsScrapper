@@ -1,0 +1,13 @@
+:root {
+  --color-page: #f4f6f3;
+  --color-surface: #ffffff;
+  --color-heading: #1d2a24;
+  --color-body: #405048;
+  --color-muted: #6b7a72;
+  --color-border: #dbe3dd;
+  --color-accent: #2f6f52;
+  --color-accent-soft: #e5f0e9;
+  --color-shadow: rgba(29, 42, 36, 0.08);
+  --font-body: "DM Sans", sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+}

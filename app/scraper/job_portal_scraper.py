@@ -10,6 +10,7 @@ from selenium.common.exceptions import (
     WebDriverException,
 )
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -19,6 +20,8 @@ NEXT_PAGE_SELECTOR = 'button[aria-label="Next page"]'
 PAGE_READY_TIMEOUT_SECONDS = 180
 DETAIL_PANEL_TIMEOUT_SECONDS = 15
 NEXT_PAGE_TIMEOUT_SECONDS = 10
+CARD_RETRY_ATTEMPTS = 3
+CARD_RETRY_DELAY_SECONDS = 1
 
 
 class JobPortalScraper:
@@ -40,6 +43,7 @@ class JobPortalScraper:
         self.logger = logger
         self.search_url = search_url
         self.browser_monitor = browser_monitor
+        self.anomalies = []
 
     def run(self):
         self.logger.info("Opening search page: %s", self.search_url)
@@ -52,23 +56,26 @@ class JobPortalScraper:
         self.logger.info("Initial page is ready; starting automatic scrape.")
 
         page_number = 1
-        while True:
-            self.wait_for_page_ready()
-            jobs = self.scrape_current_page()
-            self.output_writer.append_page(jobs, page_number)
-            self.logger.info(
-                "Page %d complete: saved %d jobs to MySQL run %s.",
-                page_number,
-                len(jobs),
-                self.output_writer.run_id,
-            )
+        try:
+            while True:
+                self.wait_for_page_ready()
+                jobs = self.scrape_current_page(page_number)
+                self.output_writer.append_page(jobs, page_number)
+                self.logger.info(
+                    "Page %d complete: saved %d jobs to MySQL run %s.",
+                    page_number,
+                    len(jobs),
+                    self.output_writer.run_id,
+                )
 
-            if not self.next_page_available():
-                self.logger.info("Reached the final page after %d page(s).", page_number)
-                return
+                if not self.next_page_available():
+                    self.logger.info("Reached the final page after %d page(s).", page_number)
+                    return
 
-            self.click_next_page()
-            page_number += 1
+                self.click_next_page()
+                page_number += 1
+        finally:
+            self.log_anomaly_report()
 
     def wait_for_page_ready(self):
         self.ensure_browser_is_alive()
@@ -101,50 +108,131 @@ class JobPortalScraper:
         except TimeoutException as exc:
             raise RuntimeError("The next-page control was not available after the page was ready.") from exc
 
-    def scrape_current_page(self):
+    def scrape_current_page(self, page_number):
         self.ensure_browser_is_alive()
         jobs = []
-        card_count = len(self.driver.find_elements(By.CSS_SELECTOR, CARD_SELECTOR))
+        cards = self.driver.find_elements(By.CSS_SELECTOR, CARD_SELECTOR)
+        card_count = len(cards)
+        expected_titles = [self._read_card_text(card, "#opptitle") for card in cards]
         self.logger.info("Found %d job card(s) on the current page.", card_count)
 
         for card_index in range(card_count):
-            job = self.scrape_job_card(card_index)
+            job = self.scrape_job_card(
+                page_number,
+                card_index,
+                expected_titles[card_index] if card_index < len(expected_titles) else "",
+                card_count,
+            )
             if job:
                 jobs.append(job)
 
         return jobs
 
-    def scrape_job_card(self, card_index):
-        self.ensure_browser_is_alive()
-        card = self._get_card(card_index)
-        title = self._read_card_text(card, "#opptitle")
-        employer = self._read_card_text(card, "#oppprovider")
+    def scrape_job_card(self, page_number, card_index, expected_title, expected_card_count):
+        title = expected_title or "unknown title"
+        for attempt in range(1, CARD_RETRY_ATTEMPTS + 1):
+            panel_open = False
+            try:
+                self.ensure_browser_is_alive()
+                self.close_detail_panel(expected_card_count)
+                card = self._get_card(card_index)
+                title = self._read_card_text(card, "#opptitle") or title
+                employer = self._read_card_text(card, "#oppprovider")
+                self._click_element(card)
+                self.wait_for_detail_panel()
+                panel_open = True
 
-        try:
-            self._click_element(card)
-            self.wait_for_detail_panel()
-        except StaleElementReferenceException:
-            self.logger.debug("Job card %d changed while opening; retrying.", card_index + 1)
-            self._click_element(self._get_card(card_index))
-            self.wait_for_detail_panel()
-        except WebDriverException as exc:
-            self.ensure_browser_is_alive()
-            self.logger.warning(
-                "Could not open job card %d (%s); skipping it: %s",
-                card_index + 1,
-                title or "untitled",
-                exc,
-            )
-            return None
+                job = self.extract_job(title, employer)
+                self.logger.info(
+                    "Scraped job %d: %s at %s.",
+                    card_index + 1,
+                    title,
+                    employer or "unknown employer",
+                )
+                return job
+            except StaleElementReferenceException as exc:
+                self._record_anomaly(page_number, card_index, title, attempt, exc)
+            except RuntimeError as exc:
+                if "disappeared" not in str(exc).lower():
+                    raise
+                self._record_anomaly(page_number, card_index, title, attempt, exc)
+            except WebDriverException as exc:
+                self.ensure_browser_is_alive()
+                self._record_anomaly(page_number, card_index, title, attempt, exc)
+                break
+            finally:
+                if panel_open:
+                    restored = self.close_detail_panel(expected_card_count)
+                    if not restored:
+                        self._record_anomaly(
+                            page_number,
+                            card_index,
+                            title,
+                            attempt,
+                            RuntimeError("The full card list was not restored after closing the detail panel."),
+                        )
 
-        job = self.extract_job(title, employer)
-        self.logger.info(
-            "Scraped job %d: %s at %s.",
+            if attempt < CARD_RETRY_ATTEMPTS:
+                time.sleep(CARD_RETRY_DELAY_SECONDS)
+
+        self.logger.error(
+            "Skipped page %d, job %d (%s) after %d attempts.",
+            page_number,
             card_index + 1,
-            title or "untitled",
-            employer or "unknown employer",
+            title,
+            CARD_RETRY_ATTEMPTS,
         )
-        return job
+        return None
+
+    def close_detail_panel(self, expected_card_count):
+        self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+        try:
+            WebDriverWait(self.driver, DETAIL_PANEL_TIMEOUT_SECONDS).until(
+                lambda driver: len(driver.find_elements(By.CSS_SELECTOR, CARD_SELECTOR)) >= expected_card_count
+            )
+            return True
+        except TimeoutException as exc:
+            self.logger.warning("The full card list was not restored after closing the detail panel: %s", exc)
+            return False
+
+    def _record_anomaly(self, page_number, card_index, title, attempt, exception):
+        anomaly = {
+            "page": page_number,
+            "job": card_index + 1,
+            "title": title,
+            "attempt": attempt,
+            "error": str(exception),
+        }
+        self.anomalies.append(anomaly)
+        self.logger.warning(
+            "Scrape anomaly: page %d, job %d, title=%r, attempt %d/%d: %s",
+            anomaly["page"],
+            anomaly["job"],
+            anomaly["title"],
+            anomaly["attempt"],
+            CARD_RETRY_ATTEMPTS,
+            anomaly["error"],
+        )
+
+    def log_anomaly_report(self):
+        if not self.anomalies:
+            self.logger.info("Final anomaly report: no anomalies recorded.")
+            return
+
+        self.logger.warning(
+            "Final anomaly report: %d anomaly event(s) recorded.",
+            len(self.anomalies),
+        )
+        for anomaly in self.anomalies:
+            self.logger.warning(
+                "  page %d, job %d, title=%r, attempt %d/%d: %s",
+                anomaly["page"],
+                anomaly["job"],
+                anomaly["title"],
+                anomaly["attempt"],
+                CARD_RETRY_ATTEMPTS,
+                anomaly["error"],
+            )
 
     def wait_for_detail_panel(self):
         try:
@@ -162,7 +250,7 @@ class JobPortalScraper:
             "metadata": self.extract_metadata(),
             "location": self.safe_text('[aria-label^="location "]'),
             "description": self.extract_description(),
-            "qualifications": self.safe_text("#qualifications"),
+            "qualifications": self.extract_qualifications(),
             "requirements": self.extract_requirements(),
         }
 
@@ -218,6 +306,30 @@ class JobPortalScraper:
                 self._raise_if_browser_closed(exc)
                 return ""
         return ""
+
+    def extract_qualifications(self):
+        for _ in range(10):
+            try:
+                heading = self.driver.find_element(By.CSS_SELECTOR, "#qualifications")
+                root = heading.find_element(By.XPATH, "..")
+                values = [
+                    paragraph.text.strip()
+                    for paragraph in root.find_elements(By.CSS_SELECTOR, "p")
+                    if paragraph.text.strip()
+                ]
+                return [
+                    {
+                        "name": values[index],
+                        "value": values[index + 1] if index + 1 < len(values) else "",
+                    }
+                    for index in range(0, len(values), 2)
+                ]
+            except StaleElementReferenceException:
+                time.sleep(0.2)
+            except WebDriverException as exc:
+                self._raise_if_browser_closed(exc)
+                return []
+        return []
 
     def extract_metadata(self):
         for _ in range(10):

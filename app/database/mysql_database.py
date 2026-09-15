@@ -6,6 +6,13 @@ import mysql.connector
 class MySQLDatabase:
     """Create, inspect, and reset the scraper database."""
 
+    REQUIRED_TABLES = {
+        "scrape_runs",
+        "jobs",
+        "job_qualifications",
+        "job_requirements",
+    }
+
     def __init__(self, host, port, database, user, password, schema_path):
         self.host = host
         self.port = port
@@ -43,9 +50,15 @@ class MySQLDatabase:
                 if statement:
                     cursor.execute(statement)
             connection.commit()
+            self._verify_schema(cursor)
         finally:
             cursor.close()
             connection.close()
+
+    def rebuild(self):
+        """Replace the database and verify that the complete schema exists."""
+        self.delete()
+        self.ensure()
 
     def has_jobs(self):
         connection = self._connect_to_database()
@@ -67,12 +80,22 @@ class MySQLDatabase:
             cursor.close()
             connection.close()
 
+    def _verify_schema(self, cursor):
+        cursor.execute("SHOW TABLES")
+        existing_tables = {row[0] for row in cursor.fetchall()}
+        missing_tables = self.REQUIRED_TABLES - existing_tables
+        if missing_tables:
+            missing = ", ".join(sorted(missing_tables))
+            raise RuntimeError(f"Database schema is incomplete. Missing table(s): {missing}")
+
     def _connect_to_server(self):
         return mysql.connector.connect(
             host=self.host,
             port=self.port,
             user=self.user,
             password=self.password,
+            charset="utf8mb4",
+            collation="utf8mb4_unicode_ci",
         )
 
     def _connect_to_database(self):
@@ -82,6 +105,8 @@ class MySQLDatabase:
             database=self.database,
             user=self.user,
             password=self.password,
+            charset="utf8mb4",
+            collation="utf8mb4_unicode_ci",
         )
 
     def _safe_database_name(self):

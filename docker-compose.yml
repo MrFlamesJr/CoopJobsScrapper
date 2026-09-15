@@ -16,5 +16,30 @@ services:
       timeout: 5s
       retries: 20
 
+  server:
+    build:
+      context: ./server
+    container_name: coop_jobs_server
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-coop_jobs}
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rootpassword}
+      SERVER_PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+    container_name: coop_jobs_web
+    ports:
+      - "5173:5173"
+
 volumes:
   mysql_data:
