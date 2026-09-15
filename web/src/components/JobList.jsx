@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import JobCard from "./JobCard";
 import "./JobList.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 function JobList() {
   const [jobs, setJobs] = useState([]);

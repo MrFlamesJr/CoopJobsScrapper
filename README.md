@@ -47,7 +47,7 @@ Start MySQL and the small database API container with:
 docker compose up -d --build mysql server
 ```
 
-The API is available at `http://localhost:8000`. It currently exposes:
+The web app is available at `http://localhost:5300` and the API is available at `http://localhost:8000`. It currently exposes:
 
 - `GET /health` to check the server and database connection.
 - `GET /api/jobs` to return all scraped jobs.

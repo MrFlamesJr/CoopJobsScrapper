@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 @app.after_request
 def allow_web_app_requests(response):
-    response.headers["Access-Control-Allow-Origin"] = "http://localhost:5173"
+    response.headers["Access-Control-Allow-Origin"] = "http://localhost:5300"
     return response
 
 

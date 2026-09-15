@@ -20,7 +20,7 @@ from app.ui.startup_menu import StartupMenu
 
 SEARCH_URL = "https://experiential-learning.uottawa.ca/search"
 DATABASE_NAME = "coop_jobs"
-WEB_APP_URL = "http://localhost:5173"
+WEB_APP_URL = "http://localhost:5300"
 
 
 def configure_logging():
