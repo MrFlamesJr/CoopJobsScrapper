@@ -3,12 +3,16 @@ import os
 import mysql.connector
 from flask import Flask, jsonify
 
+from app.scraper.controller import ScraperController, create_database
+
 app = Flask(__name__)
 
 
 @app.after_request
 def allow_web_app_requests(response):
     response.headers["Access-Control-Allow-Origin"] = "http://localhost:5300"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
 
@@ -20,6 +24,10 @@ def database_config():
         "user": os.getenv("MYSQL_USER", "root"),
         "password": os.getenv("MYSQL_PASSWORD", "rootpassword"),
     }
+
+
+database = create_database()
+scraper_controller = ScraperController(database)
 
 
 @app.get("/health")
@@ -54,6 +62,32 @@ def jobs():
             cursor.close()
         if connection is not None:
             connection.close()
+
+
+@app.get("/api/scraper/status")
+def scraper_status():
+    status = scraper_controller.status()
+    status["browser_url"] = os.getenv(
+        "BROWSER_URL",
+        "http://localhost:7900/vnc_lite.html?scale=true",
+    )
+    return jsonify(status)
+
+
+@app.post("/api/scraper/scrape")
+def start_scraper():
+    try:
+        status = scraper_controller.start("scrape")
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    status["browser_url"] = os.getenv(
+        "BROWSER_URL",
+        "http://localhost:7900/vnc_lite.html?scale=true",
+    )
+    return jsonify(status), 202
 
 
 if __name__ == "__main__":

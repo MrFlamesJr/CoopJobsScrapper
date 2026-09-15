@@ -37,12 +37,13 @@ class JobPortalScraper:
         "salary": "Salary",
     }
 
-    def __init__(self, driver, output_writer, logger, search_url, browser_monitor=None):
+    def __init__(self, driver, output_writer, logger, search_url, browser_monitor=None, progress_callback=None):
         self.driver = driver
         self.output_writer = output_writer
         self.logger = logger
         self.search_url = search_url
         self.browser_monitor = browser_monitor
+        self.progress_callback = progress_callback
         self.anomalies = []
 
     def run(self):
@@ -54,6 +55,8 @@ class JobPortalScraper:
         )
         self.wait_for_page_ready()
         self.logger.info("Initial page is ready; starting automatic scrape.")
+        if self.progress_callback is not None:
+            self.progress_callback(event="portal_ready", message="Portal login detected. Scraping jobs now.")
 
         page_number = 1
         try:
@@ -61,6 +64,12 @@ class JobPortalScraper:
                 self.wait_for_page_ready()
                 jobs = self.scrape_current_page(page_number)
                 self.output_writer.append_page(jobs, page_number)
+                if self.progress_callback is not None:
+                    self.progress_callback(
+                        pages_completed=page_number,
+                        jobs_saved=len(jobs),
+                        message=f"Saved page {page_number} ({len(jobs)} jobs).",
+                    )
                 self.logger.info(
                     "Page %d complete: saved %d jobs to MySQL run %s.",
                     page_number,

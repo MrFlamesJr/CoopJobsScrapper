@@ -15,8 +15,8 @@ try {
     throw "Docker Desktop is not installed. Install it before running this script."
 }
 
-Write-Host "Starting MySQL, the API server, and the web app..."
-docker compose up -d --build --remove-orphans --wait mysql server web
+Write-Host "Starting MySQL, the scraper browser, the API server, and the web app..."
 
-Write-Host "Starting the local scraper and Chrome browser..."
-& .\.venv\Scripts\python.exe -m app.main
+Write-Host "Web app: http://localhost:5300"
+Write-Host "Scraper browser: http://localhost:7900"
+docker compose up --build --remove-orphans mysql selenium server web

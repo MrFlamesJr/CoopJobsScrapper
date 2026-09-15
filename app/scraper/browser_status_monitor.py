@@ -63,16 +63,27 @@ class BrowserStatusMonitor:
 
     def _monitor(self):
         while not self._stop_event.wait(self.interval_seconds):
-            if not self._service_is_running():
+            if not self._browser_is_reachable():
                 self._closed_event.set()
                 self.logger.error(
-                    "The ChromeDriver service ended; the scraper will stop gracefully."
+                    "The Selenium browser session ended; the scraper will stop gracefully."
                 )
                 return
 
+    def _browser_is_reachable(self):
+        service_process = getattr(getattr(self.driver, "service", None), "process", None)
+        if service_process is not None and service_process.poll() is not None:
+            return False
+
+        try:
+            self.driver.current_url
+            return True
+        except WebDriverException:
+            return False
+
     def _service_is_running(self):
         service_process = getattr(getattr(self.driver, "service", None), "process", None)
-        return service_process is not None and service_process.poll() is None
+        return service_process is None or service_process.poll() is None
 
     def _stop_driver_service(self):
         service = getattr(self.driver, "service", None)

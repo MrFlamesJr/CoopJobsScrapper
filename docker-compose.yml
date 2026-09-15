@@ -16,9 +16,27 @@ services:
       timeout: 5s
       retries: 20
 
+  selenium:
+    image: selenium/standalone-chromium:latest
+    container_name: coop_jobs_selenium
+    shm_size: 2gb
+    environment:
+      SE_SCREEN_WIDTH: "1440"
+      SE_SCREEN_HEIGHT: "900"
+      SE_VNC_NO_PASSWORD: "true"
+      SE_VNC_VIEW_ONLY: "false"
+    ports:
+      - "7900:7900"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4444/status | grep -q 'ready' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   server:
     build:
-      context: ./server
+      context: .
+      dockerfile: server/Dockerfile
     container_name: coop_jobs_server
     restart: unless-stopped
     environment:
@@ -28,10 +46,14 @@ services:
       MYSQL_USER: ${MYSQL_USER:-root}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rootpassword}
       SERVER_PORT: 8000
+      SELENIUM_URL: http://selenium:4444/wd/hub
+      BROWSER_URL: http://localhost:7900/vnc_lite.html?scale=true
     ports:
       - "8000:8000"
     depends_on:
       mysql:
+        condition: service_healthy
+      selenium:
         condition: service_healthy
 
   web:
