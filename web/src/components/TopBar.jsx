@@ -1,6 +1,6 @@
 import Spinner from "./Spinner.jsx";
 import { HeartIcon } from "./FavoriteButton.jsx";
-import { EXPORT_JSON_URL } from "../api.js";
+import { exportJobsJson } from "../api.js";
 import { incompleteRun, runPageLabel } from "../scrapeProgress.js";
 import "./TopBar.css";
 
@@ -96,7 +96,11 @@ export default function TopBar({
       )}
 
       {total > 0 && (
-        <a className="top-bar__button top-bar__button--export" href={EXPORT_JSON_URL}>
+        <button
+          type="button"
+          className="top-bar__button top-bar__button--export"
+          onClick={() => exportJobsJson()}
+        >
           <svg className="top-bar__icon" viewBox="0 0 16 16" aria-hidden="true">
             <path
               d="M8 1.5v8.6M4.6 6.8 8 10.2l3.4-3.4M2.5 12v1.3c0 .7.6 1.2 1.2 1.2h8.6c.7 0 1.2-.6 1.2-1.2V12"
@@ -108,7 +112,7 @@ export default function TopBar({
             />
           </svg>
           <span className="top-bar__label">Export JSON</span>
-        </a>
+        </button>
       )}
 
       <button

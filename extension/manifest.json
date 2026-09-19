@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "CoopJobs Scraper",
+  "version": "0.1.0",
+  "permissions": ["storage", "unlimitedStorage", "tabs"],
+  "host_permissions": [
+    "https://experiential-learning.uottawa.ca/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background/index.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://experiential-learning.uottawa.ca/*"],
+      "js": ["content/portal.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content/bridge.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
