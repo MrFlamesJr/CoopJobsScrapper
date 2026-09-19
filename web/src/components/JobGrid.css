@@ -1,0 +1,49 @@
+.job-grid__count {
+  margin: 0 0 0.7rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.job-grid__count strong {
+  color: var(--text);
+}
+
+.job-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  /* An expanded card spans the full row; dense flow lets later cards fill the gap it leaves. */
+  grid-auto-flow: dense;
+  gap: 10px;
+  transition: opacity var(--transition-fast);
+}
+
+.job-grid--loading {
+  opacity: 0.6;
+}
+
+.job-grid__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  max-width: 420px;
+  margin-top: 3rem;
+  color: var(--muted);
+}
+
+.job-grid__empty h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.job-grid__cta {
+  margin-top: 0.4rem;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}

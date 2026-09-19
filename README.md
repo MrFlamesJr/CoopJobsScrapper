@@ -1,80 +1,86 @@
-# Coop Jobs Scraper
+# CoopJobs
 
-The web app controls the scraper and displays jobs saved in MySQL. It does not create JSON files.
+A lightweight scraper for uOttawa co-op job postings. Single Python process with Flask REST API, SQLite database, and a React UI. Selenium opens a real Chrome window where you log in; scraping runs in a background thread.
 
-## Project structure
-
-```text
-app/
-	database/               MySQL connection and job writer
-	scraper/                Selenium scraping code and controller
-server/
-	app.py                  Jobs and scraper API
-	Dockerfile              API server image
-database/
-	schema.sql              MySQL table definitions
-legacy/                   Older scripts kept for reference
-docker-compose.yml        MySQL, Selenium, API, and web containers
-```
-
-## 1. Start everything
-
-Install Docker Desktop once. Then start the complete application with one command:
+## Quick start
 
 ```powershell
 .\start.ps1
 ```
 
-The script starts MySQL, the Selenium browser, the API, and the web app. Open the web app at [http://localhost:5300](http://localhost:5300). Starting a scrape opens the remote browser in a contained viewer over the web app; Chromium runs in kiosk mode, so it shows only the portal page without tabs, an address bar, a second browser window, or noVNC controls. Log in to the portal there. The noVNC session is configured for automatic passwordless local connection.
+Opens http://127.0.0.1:8000. Click the status chip on the left panel and select "Start scrape". A Chrome window opens; log in to the uOttawa portal. Scraping starts automatically. Login is saved in `data/browser-profile` for next time.
 
-The database data is stored in a Docker volume, so it remains available after the container stops.
+## Requirements
 
-To stop MySQL:
+- **Python** 3.12+
+- **Node.js** 20+ (only for building the UI)
+- **Chrome** or **Edge** (installed and in PATH)
 
-```powershell
-docker compose down
-```
-
-The program creates the `coop_jobs` tables automatically if they do not exist.
-
-## API
-
-The API is started by `start.ps1`. Its endpoints are:
-
-- `GET /health` to check the server and database connection.
-- `GET /api/jobs` to return all scraped jobs.
-- `GET /api/scraper/status` to inspect the current scraper run.
-- `POST /api/scraper/scrape` to start a normal scrape.
-
-Scrapes run in the background. Use the scraper tab to open the remote browser,
-complete portal login, and monitor progress. Only one scrape can run at a time.
-If jobs already exist, the Scrape action asks for confirmation before adding a
-new collection to the database.
-
-## 2. Set the connection values
-
-Copy `.env.example` as a reference and set these environment variables in PowerShell:
+## Building a distributable .exe
 
 ```powershell
-$env:MYSQL_HOST = "127.0.0.1"
-$env:MYSQL_PORT = "3306"
-$env:MYSQL_DATABASE = "coop_jobs"
-$env:MYSQL_USER = "root"
-$env:MYSQL_PASSWORD = "your_mysql_password"
+.\build.ps1
 ```
 
-## Local development dependencies
+Creates `dist\CoopJobs.exe`. Data stored in `%LOCALAPPDATA%\CoopJobs` when frozen.
 
-Install the Python dependencies once:
+## Configuration
+
+Optional environment variables (defaults shown):
+
+- `COOPJOBS_PORT=8000` — API and UI server port
+- `COOPJOBS_DATA_DIR` — data directory (default: `data/` in repo, or `%LOCALAPPDATA%\CoopJobs` if frozen)
+- `COOPJOBS_SEARCH_URL=https://experiential-learning.uottawa.ca/search`
+- `COOPJOBS_DEBUG=1` — saves panel HTML snapshots to `data/debug` for diagnosing parsing issues
+- `COOPJOBS_NO_BROWSER=1` — skip auto-opening the UI in your default browser on startup
+
+## Development
+
+UI dev server (hot reload on 5173, proxies `/api` to 8000):
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+cd web
+npm run dev
 ```
 
-The Python dependencies are still useful for local scraper development. Normal
-application startup runs the scraper inside the Selenium Docker service.
+Run tests:
 
-## Web app setup references
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+```
 
-- [Vite Getting Started](https://vite.dev/guide/)
-- [Docker Node.js container guide](https://docs.docker.com/guides/nodejs/containerize/)
+## Project layout
+
+```
+app/
+  __main__.py           Entry point, logging, DB init, Flask startup
+  config.py             Constants and env overrides
+  schema.sql            SQLite schema
+  db.py                 Database functions
+  deadlines.py          Parse deadline strings
+  server.py             Flask app and HTTP API
+  scraper/
+    browser.py          Selenium WebDriver setup
+    panel_parser.py     Parse job HTML
+    portal.py           Portal navigation
+    runner.py           Threaded scraper state machine
+tests/                  pytest tests
+web/                    React UI (Vite)
+run_app.py              PyInstaller entry point (used by build.ps1)
+.gitignore, requirements*.txt, start.ps1, build.ps1
+```
+
+## API endpoints
+
+| Method | Path | Returns |
+|--------|------|---------|
+| GET | `/api/jobs` | Filtered/sorted jobs (query, filters, deadline, sort params) |
+| GET | `/api/jobs/<id>` | Full job detail or 404 |
+| GET | `/api/facets` | Field value counts (employer, location, etc.) |
+| DELETE | `/api/jobs` | Clear database (409 if scrape running) |
+| GET | `/api/scraper/status` | Scraper state + job_count, last_scraped_at |
+| POST | `/api/scraper/start` | Start scrape (202 or 409 if already running/DB not empty) |
+| POST | `/api/scraper/cancel` | Cancel scrape (200, no-op if not running) |
+| GET | `/api/export/json` | Export jobs as JSON file |
+| GET | `/api/health` | Server health check |
+| GET | `/` | Serve UI (web/dist/index.html fallback) |

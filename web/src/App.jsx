@@ -1,90 +1,140 @@
-import JobList from "./components/JobList";
-import { useState } from "react";
-import ScraperPanel from "./components/ScraperPanel";
+import { useCallback, useMemo, useState } from "react";
+import Sidebar from "./components/Sidebar.jsx";
+import FilterChips from "./components/FilterChips.jsx";
+import JobGrid from "./components/JobGrid.jsx";
+import ScraperDialog from "./components/ScraperDialog.jsx";
+import { useJobs } from "./hooks/useJobs.js";
+import { useFacets } from "./hooks/useFacets.js";
+import { useScraper } from "./hooks/useScraper.js";
+import "./App.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "";
+const EMPTY_FILTERS = {};
 
-function App() {
-  const [tab, setTab] = useState("jobs");
-  const [jobsVersion, setJobsVersion] = useState(0);
+export default function App() {
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState("deadline");
+  const [deadlineMode, setDeadlineMode] = useState("open");
+  const [facetFilters, setFacetFilters] = useState(EMPTY_FILTERS);
 
-  async function downloadJson() {
-    try {
-      const response = await fetch(`${API_URL}/api/export/json`);
+  const [expandedId, setExpandedId] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [scraperOpen, setScraperOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-      if (!response.ok) {
-        throw new Error("Could not export the database.");
-      }
+  const filterState = useMemo(
+    () => ({
+      q,
+      sort,
+      deadline: deadlineMode === "all" ? "" : deadlineMode,
+      filters: facetFilters,
+    }),
+    [q, sort, deadlineMode, facetFilters],
+  );
 
-      const data = await response.json();
+  const { jobs, total, loading, error } = useJobs(filterState, refreshKey);
+  const { facets } = useFacets(refreshKey);
 
-      const blob = new Blob(
-        [JSON.stringify(data, null, 2)],
-        { type: "application/json" }
-      );
+  // Both useJobs and useFacets refetch automatically when refreshKey changes.
+  const bumpRefresh = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
 
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
+  // After a scrape finishes (or the DB is cleared), drop any expanded card
+  // and refetch jobs + facets.
+  const handleScraperFinished = useCallback(() => {
+    setExpandedId(null);
+    bumpRefresh();
+  }, [bumpRefresh]);
 
-      link.href = url;
-      link.download = "coop-jobs.json";
+  const scraper = useScraper({
+    isOpen: scraperOpen,
+    onFinished: handleScraperFinished,
+  });
 
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+  const handleFacetToggle = useCallback((field, value) => {
+    setFacetFilters((prev) => {
+      const current = prev[field] || [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      const updated = { ...prev };
+      if (next.length === 0) delete updated[field];
+      else updated[field] = next;
+      return updated;
+    });
+    setExpandedId(null);
+  }, []);
 
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("JSON export failed:", error);
-    }
-  }
+  const clearFacetFilters = useCallback(() => setFacetFilters({}), []);
+
+  const clearAll = useCallback(() => {
+    setQ("");
+    setFacetFilters({});
+    setDeadlineMode("open");
+  }, []);
+
+  const activeFilterCount = useMemo(
+    () => Object.values(facetFilters).reduce((sum, values) => sum + values.length, 0),
+    [facetFilters],
+  );
+
+  const toggleExpand = useCallback((id) => {
+    setExpandedId((current) => (current === id ? null : id));
+  }, []);
 
   return (
-    <main className="page-shell">
-      <header className="page-header">
-          <button type="button" onClick={downloadJson}>
-          Download JSON
-        </button>
-        <div>
-          <p className="eyebrow">Co-op jobs</p>
-          <h1>Available opportunities</h1>
-          <p className="intro">
-            Browse the latest positions collected from the job portal.
-          </p>
-        </div>
-
-        <span className="header-mark" aria-hidden="true">
-          Jobs
-        </span>
-      </header>
-
-      <nav className="app-tabs" aria-label="Application views">
+    <div className="app-shell">
+      <div className="app-topbar">
         <button
-          className={tab === "jobs" ? "app-tabs__active" : ""}
-          onClick={() => setTab("jobs")}
+          type="button"
+          className="app-topbar__toggle"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Open filters"
         >
-          Jobs
+          ☰
         </button>
+        <span className="app-topbar__title">Co-op Jobs</span>
+      </div>
 
-        <button
-          className={tab === "scraper" ? "app-tabs__active" : ""}
-          onClick={() => setTab("scraper")}
-        >
-          Scraper
-        </button>
+      <Sidebar
+        q={q}
+        onQChange={setQ}
+        sort={sort}
+        onSortChange={setSort}
+        deadlineMode={deadlineMode}
+        onDeadlineModeChange={setDeadlineMode}
+        facets={facets}
+        selectedFilters={facetFilters}
+        onFacetToggle={handleFacetToggle}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={clearFacetFilters}
+        status={scraper.status}
+        onOpenScraper={() => setScraperOpen(true)}
+        isOpen={sidebarOpen}
+        onCloseMobile={() => setSidebarOpen(false)}
+      />
 
+      <main className="app-main">
+        <FilterChips filters={facetFilters} onRemove={handleFacetToggle} onClearAll={clearFacetFilters} />
 
-      </nav>
-
-      {tab === "scraper" ? (
-        <ScraperPanel
-          onCompleted={() => setJobsVersion((version) => version + 1)}
+        <JobGrid
+          jobs={jobs}
+          total={total}
+          loading={loading}
+          error={error}
+          expandedId={expandedId}
+          onToggleExpand={toggleExpand}
+          onOpenScraper={() => setScraperOpen(true)}
+          onClearFilters={clearAll}
         />
-      ) : (
-        <JobList key={jobsVersion} />
-      )}
-    </main>
+      </main>
+
+      <ScraperDialog
+        open={scraperOpen}
+        onClose={() => setScraperOpen(false)}
+        scraper={scraper}
+        onJobsChanged={handleScraperFinished}
+      />
+    </div>
   );
 }
-
-export default App;

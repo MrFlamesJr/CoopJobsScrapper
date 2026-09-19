@@ -1,0 +1,143 @@
+.job-details {
+  position: relative;
+  border-top: 1px solid var(--border);
+  padding: 1rem 1.1rem 1.2rem;
+  animation: job-details-in var(--transition-medium);
+}
+
+@keyframes job-details-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-details {
+    animation: none;
+  }
+}
+
+.job-details__close {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.8rem;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.job-details__close:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.job-details__loading,
+.job-details__error {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.job-details__error {
+  color: var(--tone-today-fg);
+}
+
+.job-details__grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 1.5rem;
+  padding-right: 3rem;
+}
+
+@media (max-width: 700px) {
+  .job-details__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.job-details__facts {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.job-details__facts div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.job-details__facts dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.job-details__facts dd {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.job-details__section {
+  margin-bottom: 1rem;
+}
+
+.job-details__section:last-child {
+  margin-bottom: 0;
+}
+
+.job-details__section h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.job-details__section p {
+  margin: 0 0 0.65rem;
+  font-size: 0.87rem;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-line;
+}
+
+.job-details__section ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.87rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.job-details__qualifications {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.job-details__qualifications div {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.55rem;
+}
+
+.job-details__qualifications dt {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.job-details__qualifications dd {
+  margin: 0;
+  font-size: 0.83rem;
+  color: var(--text);
+}

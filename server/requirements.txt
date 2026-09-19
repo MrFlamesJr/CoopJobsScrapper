@@ -1,4 +1,0 @@
-Flask
-mysql-connector-python
-selenium
-python-dotenv

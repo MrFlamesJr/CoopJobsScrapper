@@ -1,0 +1,37 @@
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.85rem;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.76rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.filter-chip:hover {
+  border-color: var(--accent);
+}
+
+.filter-chip__field {
+  color: var(--muted);
+}
+
+.filter-chip__x {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.filter-chip--clear {
+  color: var(--accent);
+  border-style: dashed;
+}

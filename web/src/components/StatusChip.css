@@ -1,0 +1,81 @@
+.status-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.status-chip:hover {
+  border-color: var(--accent);
+}
+
+.status-chip__dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--status-idle);
+}
+
+.status-chip__dot--running {
+  background: var(--status-running);
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+
+.status-chip__dot--success {
+  background: var(--status-success);
+}
+
+.status-chip__dot--error {
+  background: var(--status-error);
+}
+
+.status-chip__dot--idle {
+  background: var(--status-idle);
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-chip__dot--running {
+    animation: none;
+  }
+}
+
+.status-chip__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.status-chip__line {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-chip__sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

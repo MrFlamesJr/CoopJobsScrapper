@@ -1,0 +1,40 @@
+.deadline-chip {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+
+.deadline-chip--closed {
+  background: var(--tone-closed-bg);
+  color: var(--tone-closed-fg);
+}
+
+.deadline-chip--today {
+  background: var(--tone-today-bg);
+  color: var(--tone-today-fg);
+}
+
+.deadline-chip--tomorrow {
+  background: var(--tone-tomorrow-bg);
+  color: var(--tone-tomorrow-fg);
+}
+
+.deadline-chip--week {
+  background: var(--tone-week-bg);
+  color: var(--tone-week-fg);
+}
+
+.deadline-chip--open {
+  background: var(--tone-open-bg);
+  color: var(--tone-open-fg);
+}
+
+.deadline-chip--unknown {
+  background: var(--tone-unknown-bg);
+  color: var(--tone-unknown-fg);
+}

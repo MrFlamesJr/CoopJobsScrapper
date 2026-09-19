@@ -1,13 +1,64 @@
 :root {
-  --color-page: #f4f6f3;
-  --color-surface: #ffffff;
-  --color-heading: #1d2a24;
-  --color-body: #405048;
-  --color-muted: #6b7a72;
-  --color-border: #dbe3dd;
-  --color-accent: #2f6f52;
-  --color-accent-soft: #e5f0e9;
-  --color-shadow: rgba(29, 42, 36, 0.08);
-  --font-body: "DM Sans", sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg: #0e1013;
+  --surface: #161a1f;
+  --raised: #1d2228;
+  --border: #262c33;
+
+  /* Text */
+  --text: #e6e8eb;
+  --muted: #8b939c;
+
+  /* Accent */
+  --accent: #7aa2f7;
+  --accent-soft: rgba(122, 162, 247, 0.15);
+  --accent-contrast: #0b1220;
+
+  /* Deadline chip tones */
+  --tone-closed-bg: rgba(148, 100, 100, 0.16);
+  --tone-closed-fg: #b98b8b;
+  --tone-today-bg: rgba(224, 91, 91, 0.18);
+  --tone-today-fg: #f28b8b;
+  --tone-tomorrow-bg: rgba(224, 141, 65, 0.18);
+  --tone-tomorrow-fg: #f2ac6e;
+  --tone-week-bg: rgba(214, 176, 62, 0.18);
+  --tone-week-fg: #e4c465;
+  --tone-open-bg: rgba(90, 176, 118, 0.18);
+  --tone-open-fg: #7fce9c;
+  --tone-unknown-bg: rgba(139, 147, 156, 0.16);
+  --tone-unknown-fg: #a7afb8;
+
+  /* Status dot */
+  --status-idle: #8b939c;
+  --status-running: #e4c465;
+  --status-success: #7fce9c;
+  --status-error: #f28b8b;
+
+  /* Layout */
+  --sidebar-width: 260px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono",
+    Menlo, monospace;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  --transition-fast: 120ms ease;
+  --transition-medium: 220ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-medium: 0ms;
+  }
 }

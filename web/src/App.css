@@ -1,0 +1,45 @@
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-topbar {
+  display: none;
+}
+
+.app-main {
+  margin-left: var(--sidebar-width);
+  padding: 1.1rem 1.3rem 2.5rem;
+  min-height: 100vh;
+}
+
+@media (max-width: 800px) {
+  .app-topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0.7rem 0.9rem;
+  }
+
+  .app-topbar__toggle {
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 1rem;
+    padding: 0.3rem 0.6rem;
+  }
+
+  .app-topbar__title {
+    font-weight: 700;
+  }
+
+  .app-main {
+    margin-left: 0;
+    padding: 1rem;
+  }
+}

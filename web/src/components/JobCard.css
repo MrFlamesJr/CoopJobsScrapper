@@ -1,66 +1,77 @@
 .job-card {
-  align-items: flex-start;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  display: flex;
-  gap: 2rem;
-  justify-content: space-between;
-  padding: 1.4rem 1.5rem;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color var(--transition-fast), grid-column var(--transition-fast);
 }
 
 .job-card:hover {
-  border-color: var(--color-accent);
-  box-shadow: 0 0.5rem 1.5rem var(--color-shadow);
+  border-color: var(--accent);
 }
 
-.job-card__main {
-  min-width: 0;
+.job-card--expanded {
+  grid-column: 1 / -1;
+  border-color: var(--accent);
 }
 
-.job-card__eyebrow,
-.job-card__label {
-  color: var(--color-muted);
+.job-card__summary {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+}
+
+.job-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.job-card__number {
+  font-family: var(--font-mono);
   font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  margin: 0;
-  text-transform: uppercase;
+  color: var(--muted);
 }
 
-.job-card h2 {
-  color: var(--color-heading);
-  font-family: var(--font-display);
-  font-size: 1.2rem;
-  line-height: 1.25;
-  margin: 0.45rem 0 0.55rem;
+.job-card__title {
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.job-card__details {
-  color: var(--color-muted);
-  line-height: 1.5;
-  margin: 0;
+.job-card__employer {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .job-card__meta {
-  color: var(--color-body);
   display: flex;
-  flex: 0 0 9rem;
-  flex-direction: column;
-  gap: 0.35rem;
-  line-height: 1.4;
-  text-align: right;
+  flex-wrap: wrap;
+  gap: 0 0.4rem;
+  font-size: 0.72rem;
+  color: var(--muted);
 }
 
-@media (max-width: 600px) {
-  .job-card {
-    flex-direction: column;
-    gap: 1rem;
-  }
+.job-card__meta-item {
+  position: relative;
+}
 
-  .job-card__meta {
-    flex-basis: auto;
-    text-align: left;
-  }
+.job-card__meta-item:not(:last-child)::after {
+  content: "·";
+  margin-left: 0.4rem;
 }

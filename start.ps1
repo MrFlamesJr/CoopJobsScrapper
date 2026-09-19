@@ -1,22 +1,49 @@
+# CoopJobs startup script for Windows development
+[CmdletBinding()]
+param(
+    [switch]$Rebuild
+)
+
 $ErrorActionPreference = "Stop"
+$repoRoot = $PSScriptRoot
 
-$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $projectRoot
+# Create and activate venv if missing
+$venvPath = "$repoRoot\.venv"
+$markerFile = "$venvPath\.installed"
 
-Write-Host "Starting Docker Desktop..."
-try {
-    docker desktop start | Out-Null
-} catch {
-    $dockerDesktop = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-    if (Test-Path $dockerDesktop) {
-        Start-Process $dockerDesktop
-        throw "Docker Desktop is starting. Run .\start.ps1 again in a few seconds."
-    }
-    throw "Docker Desktop is not installed. Install it before running this script."
+if (-not (Test-Path $venvPath)) {
+    Write-Host "Creating virtual environment..." -ForegroundColor Cyan
+    python -m venv $venvPath
 }
 
-Write-Host "Starting MySQL, the scraper browser, the API server, and the web app..."
+# Install dependencies only if requirements.txt is newer than marker
+$reqFile = "$repoRoot\requirements.txt"
+if ((Test-Path $reqFile) -and (-not (Test-Path $markerFile) -or (Get-Item $reqFile).LastWriteTime -gt (Get-Item $markerFile).LastWriteTime)) {
+    Write-Host "Installing dependencies..." -ForegroundColor Cyan
+    & "$venvPath\Scripts\python.exe" -m pip install -q -r $reqFile
+    if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
+    (Get-Date) | Out-File $markerFile -Encoding utf8
+}
 
-Write-Host "Web app: http://localhost:5300"
-Write-Host "Scraper browser: http://localhost:7900"
-docker compose up --build --remove-orphans mysql selenium server web
+# Build web UI if missing or -Rebuild given
+$webDistIndex = "$repoRoot\web\dist\index.html"
+if ($Rebuild -or -not (Test-Path $webDistIndex)) {
+    Write-Host "Building web UI..." -ForegroundColor Cyan
+    Push-Location "$repoRoot\web"
+    try {
+        if (Test-Path "package-lock.json") {
+            npm ci
+        } else {
+            npm install
+        }
+        npm run build
+        if ($LASTEXITCODE -ne 0) { throw "npm build failed" }
+    } finally {
+        Pop-Location
+    }
+}
+
+# Run the app
+Write-Host "Starting app..." -ForegroundColor Cyan
+& "$venvPath\Scripts\python.exe" -m app
+if ($LASTEXITCODE -ne 0) { throw "App exited with error" }
