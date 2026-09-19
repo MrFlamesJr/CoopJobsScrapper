@@ -11,7 +11,7 @@ pager directly instead of trusting a counter we increment ourselves, and
 
 import pytest
 
-from app.scraper.portal import JobPortalScraper
+from app.scraper.portal import CARD_SELECTOR, JobPortalScraper
 
 
 class _FakeButton:
@@ -158,3 +158,95 @@ def test_visible_page_numbers_parses_both_label_styles():
     assert pages.keys() == {1, 2, 3}
     assert pages[2].get_attribute("aria-label") == "Current page 2"
     assert pages[1].get_attribute("aria-label") == "Page 1"
+
+
+def test_last_page_reads_the_real_portal_pager_window():
+    """The portal's own pager on page 1 renders "Current page 1", "Page 2".."Page 6",
+    an ellipsis (a <p>, so it has no aria-label and never shows up here), then
+    "Page 38" and "Page 39" -- which must read as 39 pages, not as 8."""
+    driver = _FakePagerDriver(current_page=1, last_page=39, window={1, 2, 3, 4, 5, 6, 38, 39})
+    scraper = _scraper(driver)
+
+    assert scraper._visible_page_numbers().keys() == {1, 2, 3, 4, 5, 6, 38, 39}
+    assert scraper._last_page() == 39
+
+
+# -- Counting the pages up front (run()) --------------------------------------
+
+
+class _FakeRunDriver(_FakePagerDriver):
+    """_FakePagerDriver plus what run() itself touches: driver.get and a page of
+    job cards to count."""
+
+    def __init__(self, current_page, last_page=None, cards=0):
+        super().__init__(current_page, last_page)
+        self.cards = [object() for _ in range(cards)]
+        self.url = None
+
+    def get(self, url):
+        self.url = url
+
+    def find_elements(self, by, selector):
+        if selector == CARD_SELECTOR:
+            return list(self.cards)
+        return super().find_elements(by, selector)
+
+
+def _run_ready_scraper(monkeypatch, driver, on_event):
+    """A scraper whose navigation is stubbed out, so run() exercises only its page
+    counting, its loop and its events. scrape_current_page emits one card event so
+    tests can check what the page count is emitted *before*."""
+    scraper = JobPortalScraper(driver=driver, search_url="https://example.test", on_event=on_event)
+    monkeypatch.setattr(scraper, "wait_for_page_ready", lambda: None)
+    monkeypatch.setattr(scraper, "_next_page_available", lambda: False)
+
+    def scrape_current_page(page_number):
+        scraper._emit(type="card", page=page_number, index=1, total=1, title="Data Analyst")
+        return []
+
+    monkeypatch.setattr(scraper, "scrape_current_page", scrape_current_page)
+    return scraper
+
+
+def test_run_emits_the_page_count_before_the_first_card(monkeypatch):
+    events = []
+    driver = _FakeRunDriver(current_page=1, last_page=39, cards=20)
+    scraper = _run_ready_scraper(monkeypatch, driver, events.append)
+
+    scraper.run()
+
+    assert events[0] == {"type": "pages_found", "total_pages": 39, "cards_per_page": 20}
+    kinds = [event["type"] for event in events]
+    assert kinds.index("pages_found") < kinds.index("card")
+    assert scraper.total_pages == 39
+
+
+def test_run_completes_when_the_pager_cannot_be_read(monkeypatch):
+    """A single page of results (or an unreadable pager) means no page count -- the
+    run must carry on regardless, just without a total."""
+    events = []
+    driver = _FakeRunDriver(current_page=None, last_page=None, cards=20)
+    scraper = _run_ready_scraper(monkeypatch, driver, events.append)
+
+    scraper.run()
+
+    assert events[0] == {"type": "pages_found", "total_pages": None, "cards_per_page": 20}
+    assert scraper.total_pages is None
+    assert [event["type"] for event in events].count("card") == 1
+
+
+def test_run_re_emits_the_page_count_when_the_portal_reports_more_pages(monkeypatch):
+    """If a later per-page read finds a higher last page (the portal added one, or
+    its pager was unreadable up front), the total is announced again."""
+    events = []
+    driver = _FakeRunDriver(current_page=1, last_page=None, cards=20)
+    scraper = _run_ready_scraper(monkeypatch, driver, events.append)
+    readings = [None, 7]  # the up-front read, then the read after page 1
+    monkeypatch.setattr(scraper, "_last_page", lambda: readings.pop(0) if readings else 7)
+
+    scraper.run()
+
+    counts = [event for event in events if event["type"] == "pages_found"]
+    assert [event["total_pages"] for event in counts] == [None, 7]
+    assert counts[1]["cards_per_page"] == 20
+    assert scraper.total_pages == 7

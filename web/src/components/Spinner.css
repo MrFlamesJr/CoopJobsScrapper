@@ -1,0 +1,41 @@
+.spinner {
+  flex: 0 0 auto;
+  display: inline-block;
+  width: var(--spinner-size, 14px);
+  height: var(--spinner-size, 14px);
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  animation: spinner-spin 0.7s linear infinite;
+}
+
+.spinner--accent {
+  border-top-color: var(--accent);
+}
+
+.spinner--warn {
+  border-top-color: var(--tone-tomorrow-fg);
+}
+
+@keyframes spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* No spinning when motion is reduced: the ring just breathes instead, so it
+   still reads as "working". */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: spinner-breathe 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes spinner-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

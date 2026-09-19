@@ -1,6 +1,7 @@
 """Cheap tests for JobPortalScraper's panel-matching -- no real browser."""
 
 import pytest
+from selenium.common.exceptions import TimeoutException
 
 import app.scraper.portal as portal
 from app.scraper.panel_parser import normalize_text
@@ -271,3 +272,124 @@ def test_cross_check_safety_valve_does_not_trip_once_a_card_matches():
         scraper._record_cross_check_outcome({"work_model": "Remote"})
 
     assert "work_model" not in scraper._cross_check_disabled_fields
+
+
+# -- Live progress events (the optional on_event callback) --------------------
+#
+# ScrapeRunner turns these into its live status and saves each `scraped` job to
+# the database as it arrives. A run without a callback must behave exactly as it
+# did before, and a callback must never be able to break a scrape.
+
+
+class _FakeCardsDriver:
+    """Serves a fixed number of job cards; the card-level work itself is stubbed."""
+
+    def __init__(self, count: int):
+        self.count = count
+
+    def find_elements(self, _by, _selector):
+        return [object() for _ in range(self.count)]
+
+
+def test_emit_is_a_no_op_without_a_callback_and_never_breaks_a_scrape(caplog):
+    silent = JobPortalScraper(driver=_FakeDriver([]), search_url="https://example.test")
+    silent._emit(type="card", page=1)  # no callback: nothing happens, nothing raises
+
+    def boom(_event):
+        raise RuntimeError("callback bug")
+
+    noisy = JobPortalScraper(driver=_FakeDriver([]), search_url="https://example.test", on_event=boom)
+    with caplog.at_level("WARNING"):
+        noisy._emit(type="card", page=1)
+
+    assert any("on_event" in message for message in caplog.messages)
+
+
+def test_scraped_event_fires_once_per_accepted_job_after_the_duplicate_check(monkeypatch):
+    """One `scraped` event per job that is actually kept -- not for the portal's
+    duplicate listing, not for the card that failed -- each carrying the job dict."""
+    events = []
+    cards = [
+        {"job_number": "J1", "title": "A", "employer": "Acme"},
+        {"job_number": "J1", "title": "A", "employer": "Acme"},  # same number: duplicate
+        {"job_number": "", "title": "B", "employer": "Acme"},  # no number: still kept
+        None,  # card that exhausted its attempts
+    ]
+    scraper = JobPortalScraper(
+        driver=_FakeCardsDriver(len(cards)), search_url="https://example.test", on_event=events.append
+    )
+    monkeypatch.setattr(scraper, "_scrape_card", lambda page, index, total: cards[index])
+
+    kept = scraper.scrape_current_page(1)
+
+    scraped = [event for event in events if event["type"] == "scraped"]
+    assert [event["job"] for event in scraped] == kept == [cards[0], cards[2]]
+    assert [event["index"] for event in scraped] == [1, 3]
+    assert scraped[0]["total"] == 4
+    assert scraper.duplicates == 1
+
+
+def test_retry_pass_announces_itself_and_emits_scraped_for_recovered_jobs(monkeypatch):
+    """The retry pass reports a recovered job through the same `scraped` event as
+    the main sweep (so the runner saves it exactly once) and still hands the page
+    callback its page jobs."""
+    events = []
+    recovered = {"job_number": "J7", "title": "A", "employer": "Acme"}
+    pages = []
+    scraper = JobPortalScraper(
+        driver=_FakeCardsDriver(3),
+        search_url="https://example.test",
+        page_callback=lambda page, jobs: pages.append((page, jobs)),
+        on_event=events.append,
+    )
+    scraper._skipped_cards = [
+        {"page": 2, "index": 1, "card_text": "", "title": "A", "employer": "Acme"}
+    ]
+    monkeypatch.setattr(scraper, "_go_to_page", lambda page: None)
+    monkeypatch.setattr(scraper, "wait_for_page_ready", lambda: None)
+    monkeypatch.setattr(scraper, "_scrape_card", lambda page, index, total: recovered)
+
+    scraper._retry_failed_cards()
+
+    assert [event["type"] for event in events] == ["retry_pass", "scraped"]
+    assert events[0] == {"type": "retry_pass", "cards": 1, "pages": 1}
+    assert events[1]["job"] is recovered
+    assert events[1]["page"] == 2
+    assert pages == [(2, [recovered])]
+
+
+def test_scrape_card_emits_card_once_then_a_retry_per_attempt_then_skipped(monkeypatch):
+    monkeypatch.setattr(portal, "CARD_RETRY_ATTEMPTS", 2)
+    events = []
+    scraper = JobPortalScraper(
+        driver=_FakeCardsDriver(1), search_url="https://example.test", on_event=events.append
+    )
+    monkeypatch.setattr(scraper, "_close_detail_panel", lambda expected_card_count: None)
+    monkeypatch.setattr(scraper, "_get_card", lambda index: object())
+    monkeypatch.setattr(
+        scraper,
+        "_read_card_text",
+        lambda card, selector: "Data Analyst" if selector == "#opptitle" else "Acme",
+    )
+    monkeypatch.setattr(scraper, "_read_full_card_text", lambda card: "data analyst acme")
+    monkeypatch.setattr(scraper, "_click", lambda element: None)
+    monkeypatch.setattr(scraper, "_full_page_html", lambda: "")
+
+    def never_matches(*_args, **_kwargs):
+        raise TimeoutException("panel never matched")
+
+    monkeypatch.setattr(scraper, "_wait_for_matching_panel", never_matches)
+
+    assert scraper._scrape_card(2, 4, 20) is None
+
+    assert [event["type"] for event in events] == ["card", "retry", "retry", "skipped"]
+    assert events[0] == {
+        "type": "card",
+        "page": 2,
+        "index": 5,  # 1-based, as the UI shows it
+        "total": 20,
+        "title": "Data Analyst",
+        "employer": "Acme",
+    }
+    assert [event["attempt"] for event in events[1:3]] == [1, 2]
+    assert "panel never matched" in events[-1]["reason"]

@@ -1,0 +1,139 @@
+/* Sticky bar above the grid and the chips: count + live line on the left,
+   Collapse all / Export / Favorites pinned right. It bleeds over .app-main's
+   side padding so scrolling cards don't show beside it. */
+.top-bar {
+  position: sticky;
+  top: var(--app-topbar-h, 0px);
+  height: var(--topbar-h, 2.75rem);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 -1.3rem;
+  padding: 0 1.3rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+/* .app-main's padding shrinks on small screens, so the bleed follows. */
+@media (max-width: 800px) {
+  .top-bar {
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+  }
+}
+
+.top-bar__count {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.top-bar__count strong {
+  color: var(--text);
+}
+
+/* Visually reset button so the live line can open the scraper dialog.
+   min-width: 0 + the ellipsis below make it what gives way first when the
+   row runs out of room. */
+.top-bar__live {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--accent);
+  transition: color var(--transition-fast);
+}
+
+.top-bar__live:hover {
+  color: var(--text);
+}
+
+/* Same slot once the run has ended half-finished: amber instead of accent. */
+.top-bar__live--warn {
+  color: var(--tone-tomorrow-fg);
+}
+
+.top-bar__live span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-bar__spacer {
+  flex: 1;
+  min-width: 0.5rem;
+}
+
+.top-bar__button {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.65rem;
+  white-space: nowrap;
+  transition: border-color var(--transition-fast);
+}
+
+.top-bar__button:hover {
+  border-color: var(--border-hover, var(--accent));
+}
+
+.top-bar__icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.top-bar__count-badge {
+  color: var(--muted);
+}
+
+.top-bar__heart {
+  display: inline-flex;
+  color: var(--favorite);
+}
+
+.top-bar__heart .heart-icon {
+  width: 14px;
+  height: 14px;
+  fill: var(--favorite);
+}
+
+@keyframes top-bar-heart-pulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.top-bar__heart--pulse {
+  animation: top-bar-heart-pulse 420ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .top-bar__heart--pulse {
+    animation: none;
+  }
+}
+
+/* Export keeps just its icon once the row gets tight. */
+@media (max-width: 800px) {
+  .top-bar__button--export .top-bar__label {
+    display: none;
+  }
+}

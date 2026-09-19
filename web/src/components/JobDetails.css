@@ -1,35 +1,23 @@
+/* No entrance animation here: in the grid the panel around it zooms out of
+   its card (JobPanel.css), in the favorites drawer the row reveals it. */
 .job-details {
   position: relative;
   border-top: 1px solid var(--border);
   padding: 1rem 1.1rem 1.2rem;
-  animation: job-details-in var(--transition-medium);
-}
-
-@keyframes job-details-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .job-details {
-    animation: none;
-  }
+  /* Layout below reacts to the panel's own width, not the viewport: this
+     renders both in the full-width grid panel and the 440px drawer. */
+  container-type: inline-size;
 }
 
 .job-details__close {
-  position: absolute;
-  top: 0.7rem;
-  right: 0.8rem;
+  flex: none;
   background: var(--raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--muted);
   font-size: 0.78rem;
   padding: 0.25rem 0.6rem;
+  scroll-margin-top: 6rem;
 }
 
 .job-details__close:hover {
@@ -47,17 +35,97 @@
   color: var(--tone-today-fg);
 }
 
-.job-details__grid {
-  display: grid;
-  grid-template-columns: minmax(200px, 260px) 1fr;
-  gap: 1.5rem;
-  padding-right: 3rem;
+/* The caller's header content and the rule under it; the Close button has its
+   own row below. Only rendered when there is header content. */
+.job-details__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
 }
 
-@media (max-width: 700px) {
+/* Job number, title, employer, deadline chip, heart — built by the caller from
+   the list job. Wraps within the full width of the panel. */
+.job-details__header-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.8rem;
+}
+
+/* The heart closes the row on the right, so the Close button under it has an
+   edge to line up with. */
+.job-details__header-main > :last-child {
+  margin-left: auto;
+}
+
+/* Its own row, right edge on the header's — and so on the heart's. The
+   negative top margin eats into the header's bottom margin (they collapse to
+   the sum) so the button sits just under the rule instead of a full gap
+   below it. */
+.job-details__close-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: -0.45rem 0 0.9rem;
+}
+
+/* No header content (the favorites drawer): the button on its own, no rule
+   line above it to hug. */
+.job-details__close-row--bare {
+  margin: 0 0 0.6rem;
+}
+
+.job-details__grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  align-items: start;
+  gap: 1.5rem;
+}
+
+@container (max-width: 640px) {
   .job-details__grid {
     grid-template-columns: 1fr;
   }
+
+  .job-details__rail {
+    position: static;
+    top: auto;
+  }
+
+  .job-details__facts {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+}
+
+.job-details__rail {
+  align-self: start;
+  display: grid;
+  gap: 1.1rem;
+  align-content: start;
+  /* Stays in view while a long description scrolls past it — below the
+     panel's pinned header when there is one (--details-header-h). */
+  position: sticky;
+  top: calc(
+    var(--app-topbar-h, 0px) + var(--topbar-h, 2.75rem) + var(--chips-offset, 0px) +
+      var(--details-header-h, 0px) + 0.75rem
+  );
+  transition: top 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-details__rail {
+    transition: none;
+  }
+}
+
+/* The rail's own grid gap spaces Requirements/Qualifications from the facts
+   and each other; their section margin-bottom would only double that up. */
+.job-details__rail .job-details__section {
+  margin-bottom: 0;
 }
 
 .job-details__facts {
@@ -107,6 +175,25 @@
   line-height: 1.55;
   color: var(--text);
   white-space: pre-line;
+}
+
+.job-details__description p {
+  max-width: 75ch;
+}
+
+/* Bullets split out of a description paragraph (see bulletItems). */
+.job-details__description ul {
+  max-width: 75ch;
+  margin: 0 0 0.65rem;
+}
+
+/* Hugs its lead-in ("…the following criteria:"). */
+.job-details__description p + ul {
+  margin-top: -0.3rem;
+}
+
+.job-details__description li + li {
+  margin-top: 0.2rem;
 }
 
 .job-details__section ul {

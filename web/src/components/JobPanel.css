@@ -1,0 +1,193 @@
+/* Spans the full grid row directly under its card's row (see JobGrid.css).
+   Opening and closing is a View Transition: the card's box grows into this
+   one and back (the `vt-morph` rules at the bottom of this file). */
+.job-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-active, var(--accent));
+  border-radius: var(--radius-lg);
+  /* Clips to the rounded corners (without becoming a scroll container, so
+     sticky still works): the pinned header below can stay square. */
+  overflow: clip;
+}
+
+/* `clip`, not `hidden`: it doesn't create a scroll container, so the details
+   rail's position: sticky keeps working. */
+.job-panel__inner {
+  min-height: 0;
+  overflow: clip;
+}
+
+/* Without View Transitions the panel opens on its own, by animating its single
+   grid row from 0fr to 1fr. Running both would capture the panel at near-zero
+   height and the zoom would land on nothing. */
+@supports not (view-transition-name: none) {
+  .job-panel {
+    animation: job-panel-open 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  @keyframes job-panel-open {
+    from {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .job-panel {
+      animation: none;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-panel .job-details__header,
+  .job-panel .job-details__close-row {
+    transition: none;
+  }
+}
+
+/* The panel draws its own top edge; no second line inside it. */
+.job-panel .job-details {
+  border-top: 0;
+}
+
+/* The header row stays pinned under the top bar / filter chips while a long
+   description scrolls, and the details rail sticks right below it (JobDetails
+   publishes this row's height as --details-header-h). It bleeds over
+   .job-details' padding and is opaque, so nothing shows beside or through it.
+   Its top border lies on the panel's own: clipped away at rest (the panel
+   clips to its padding box), it closes the panel off under the top bar once
+   pinned, so the header never looks cropped. Square corners — at rest the
+   panel's clip rounds them. */
+.job-panel .job-details__header {
+  position: sticky;
+  top: calc(var(--app-topbar-h, 0px) + var(--topbar-h, 2.75rem) + var(--chips-offset, 0px));
+  z-index: 2;
+  margin: calc(-1rem - 1px) -1.1rem 1rem;
+  padding: 1rem 1.1rem 0.85rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border-active, var(--accent));
+  /* Follows the filter chips bar as it slides away and back. */
+  transition: top 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* The Close button pins with the header, just under its rule. The 0.55rem is
+   the gap it already has there at rest (the header's 1rem bottom margin less
+   the row's -0.45rem), so it doesn't jump when it starts sticking. Only the
+   button takes clicks; the rest of the row lets them through to the text. */
+.job-panel .job-details__close-row {
+  position: sticky;
+  top: calc(
+    var(--app-topbar-h, 0px) + var(--topbar-h, 2.75rem) + var(--chips-offset, 0px) +
+      var(--details-header-h, 0px) + 0.55rem
+  );
+  z-index: 2;
+  pointer-events: none;
+  transition: top 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.job-panel .job-details__close {
+  pointer-events: auto;
+}
+
+/* A real flex-basis, not 0: the header wraps, and a zero-basis title would
+   contribute nothing to line fitting and be squeezed to nothing instead of
+   taking its own line on a narrow panel. */
+.job-panel__title {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.job-panel__employer {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+/* ---------- The zoom (see viewTransition.js) ---------- */
+
+/* Every card and panel near the viewport is named for the length of a toggle,
+   so they all slide to their new places at one speed. */
+::view-transition-group(*) {
+  animation-duration: 180ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Clicks go to the real cards underneath while the 200ms plays. */
+::view-transition {
+  pointer-events: none;
+}
+
+/* Nothing else on the page is changing, so the new page is shown at once
+   instead of cross-fading with the old one — that is what keeps a toggle
+   feeling instant. */
+::view-transition-old(root) {
+  display: none;
+}
+
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* The card ↔ panel pair. The group grows from one box to the other; the two
+   snapshots fill it and cross-fade. A card and a panel have very different
+   aspect ratios, so `cover` from the top-left corner (where both start with
+   the job number and title) distorts far less than stretching would. */
+::view-transition-group(vt-morph) {
+  animation-duration: 200ms;
+  overflow: clip;
+  border-radius: var(--radius-lg);
+}
+
+::view-transition-old(vt-morph),
+::view-transition-new(vt-morph) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+
+/* Sticky chrome is named too, so the cards sliding under it pass behind it
+   instead of over it. It never moves, so it never animates. */
+.app-topbar {
+  view-transition-name: chrome-app-topbar;
+}
+
+.top-bar {
+  view-transition-name: chrome-top-bar;
+}
+
+.filter-chips-bar {
+  view-transition-name: chrome-chips;
+}
+
+::view-transition-old(chrome-app-topbar),
+::view-transition-old(chrome-top-bar),
+::view-transition-old(chrome-chips) {
+  display: none;
+}
+
+::view-transition-group(chrome-app-topbar),
+::view-transition-group(chrome-top-bar),
+::view-transition-group(chrome-chips),
+::view-transition-new(chrome-app-topbar),
+::view-transition-new(chrome-top-bar),
+::view-transition-new(chrome-chips) {
+  animation: none;
+  mix-blend-mode: normal;
+}

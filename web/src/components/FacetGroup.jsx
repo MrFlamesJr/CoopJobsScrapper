@@ -3,6 +3,24 @@ import "./FacetGroup.css";
 
 const VISIBLE_LIMIT = 8;
 
+// 16×16 stroke chevron, centred in its own box so rotating it (open/closed)
+// turns around the true centre instead of a glyph's off-centre ink.
+function ChevronIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 6l4 4 4-4" />
+    </svg>
+  );
+}
+
 export default function FacetGroup({ label, field, options, selected, onToggle }) {
   const [open, setOpen] = useState(true);
   const [filter, setFilter] = useState("");
@@ -40,10 +58,14 @@ export default function FacetGroup({ label, field, options, selected, onToggle }
         className="facet-group__header"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        aria-label={`${label}, ${options.length} options`}
       >
-        <span>{label}</span>
+        <span className="facet-group__title">
+          <span>{label}</span>
+          <span className="facet-group__count">{options.length}</span>
+        </span>
         <span className="facet-group__caret" data-open={open} aria-hidden="true">
-          ▾
+          <ChevronIcon />
         </span>
       </button>
 

@@ -6,15 +6,36 @@
   --surface: #161a1f;
   --raised: #1d2228;
   --border: #262c33;
+  /* The favorites drawer sits on top of everything, so it is a shade lighter
+     than --surface to read as its own layer. */
+  --drawer-bg: #1b2026;
+  /* Sidebar reads a touch darker than the main surface, with its filter
+     panel/search/select inset a shade darker still. */
+  --sidebar-bg: #1a1f25;
+  --sidebar-inset: #13161b;
+  /* Border states shared by hover/active outlines across cards and panels. */
+  --border-hover: color-mix(in srgb, var(--accent) 30%, var(--border));
+  --border-active: color-mix(in srgb, var(--accent) 60%, var(--border));
 
   /* Text */
   --text: #e6e8eb;
   --muted: #8b939c;
+  /* The job number gets its own colour, distinct from --muted. */
+  --job-number: #8fa6cf;
 
   /* Accent */
   --accent: #7aa2f7;
   --accent-soft: rgba(122, 162, 247, 0.15);
   --accent-contrast: #0b1220;
+  /* Soft ring for text-field/select focus (buttons/checkboxes keep the strong
+     :focus-visible outline). */
+  --focus-ring: color-mix(in srgb, var(--accent) 22%, transparent);
+  /* Search match highlighting. */
+  --highlight-bg: rgba(228, 196, 101, 0.26);
+
+  /* Favorites */
+  --favorite: #f26b6b;
+  --favorite-soft: rgba(242, 107, 107, 0.16);
 
   /* Deadline chip tones */
   --tone-closed-bg: rgba(148, 100, 100, 0.16);
@@ -36,8 +57,17 @@
   --status-success: #7fce9c;
   --status-error: #f28b8b;
 
+  /* Scrape progress (dialog only; the sidebar's status chip has its own look). */
+  --progress-total: var(--accent);
+  --progress-page: var(--tone-open-fg);
+
   /* Layout */
   --sidebar-width: 260px;
+  --grid-gap: 16px;
+  --topbar-h: 2.75rem;
+  /* Space reserved above the sticky top bar for the mobile app header; 0 on
+     desktop, where there is no such header. */
+  --app-topbar-h: 0px;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -60,5 +90,11 @@
   :root {
     --transition-fast: 0ms;
     --transition-medium: 0ms;
+  }
+}
+
+@media (max-width: 800px) {
+  :root {
+    --app-topbar-h: 3.1rem;
   }
 }

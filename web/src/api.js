@@ -61,6 +61,24 @@ export function deleteAllJobs() {
   return request("/api/jobs", { method: "DELETE" });
 }
 
+// Every favorites endpoint answers with the full, fresh list, so callers can
+// just replace their state with `.favorites` from any response.
+export function fetchFavorites(signal) {
+  return request("/api/favorites", { signal });
+}
+
+export function addFavorite(jobNumber) {
+  return request(`/api/favorites/${encodeURIComponent(jobNumber)}`, { method: "PUT" });
+}
+
+export function removeFavorite(jobNumber) {
+  return request(`/api/favorites/${encodeURIComponent(jobNumber)}`, { method: "DELETE" });
+}
+
+// Server-sent events: the same status object as /api/scraper/status, pushed
+// on every change.
+export const SCRAPER_STREAM_URL = "/api/scraper/stream";
+
 export function fetchScraperStatus(signal) {
   return request("/api/scraper/status", { signal });
 }

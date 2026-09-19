@@ -179,18 +179,26 @@ class JobPortalScraper:
         debug_dir: Optional[Path] = None,
         snapshot_all: bool = False,
         ready_callback: Optional[Callable[[], None]] = None,
+        on_event: Optional[Callable[[dict], None]] = None,
     ):
         self.driver = driver
         self.search_url = search_url
         self.cancel_event = cancel_event or threading.Event()
         self.page_callback = page_callback
         self.ready_callback = ready_callback
+        # Optional live-progress callback (see _emit); a run without one behaves
+        # exactly as it did before.
+        self.on_event = on_event
         self.debug_dir = debug_dir
         self.snapshot_all = snapshot_all
         self.anomalies = 0
         # Accounting exposed to ScrapeRunner.status() -- see module docstring.
         self.cards_seen = 0
         self.duplicates = 0
+        # Counted once, up front, so the UI can show "page N of M" from the very
+        # first card (see run()). None means the pager could not be read.
+        self.total_pages: Optional[int] = None
+        self.cards_per_page = 0
         self._seen_job_numbers: set = set()
         # job_number of the last card successfully scraped -- lets us catch a panel
         # that still shows the previous job even though its title/employer text
@@ -216,6 +224,20 @@ class JobPortalScraper:
             for failure in self._skipped_cards
         ]
 
+    def _emit(self, **event) -> None:
+        """Hand one progress event to the optional `on_event` callback.
+
+        Monitoring only (ScrapeRunner turns these into its live status): with no
+        callback nothing happens, and a callback that raises is logged and ignored
+        rather than allowed to break the scrape.
+        """
+        if self.on_event is None:
+            return
+        try:
+            self.on_event(event)
+        except Exception as exc:  # noqa: BLE001 -- monitoring must never break a scrape
+            logger.warning("on_event callback failed for a %r event: %s", event.get("type"), exc)
+
     def run(self) -> None:
         logger.info("Opening search page: %s", self.search_url)
         self.driver.get(self.search_url)
@@ -235,16 +257,33 @@ class JobPortalScraper:
             self._go_to_page(1)
             expected_page = 1
 
+        # Count the pages (and page 1's cards) BEFORE the first card is opened, so
+        # the UI can show real progress instead of an open-ended "page N". Both may
+        # be unknown -- a single page of results, or a pager we could not read --
+        # in which case total_pages stays None and the run carries on regardless.
+        self.total_pages = self._last_page()
+        self.cards_per_page = len(self.driver.find_elements(By.CSS_SELECTOR, CARD_SELECTOR))
+        logger.info(
+            "Portal reports %s page(s) with %d card(s) on page 1.", self.total_pages, self.cards_per_page
+        )
+        self._emit(type="pages_found", total_pages=self.total_pages, cards_per_page=self.cards_per_page)
+
         while True:
             self._check_cancelled()
             self.wait_for_page_ready()
             self._verify_current_page(expected_page)
+            self._emit(type="page", page=expected_page, last_page=self.total_pages)
             jobs = self.scrape_current_page(expected_page)
             if self.page_callback is not None:
                 self.page_callback(expected_page, jobs)
 
             self._check_cancelled()
             last_page = self._last_page()
+            if last_page is not None and (self.total_pages is None or last_page > self.total_pages):
+                # The portal grew a page (or its pager was unreadable up front):
+                # re-announce so the UI's total stays correct.
+                self.total_pages = last_page
+                self._emit(type="pages_found", total_pages=last_page, cards_per_page=self.cards_per_page)
             current_page = self._current_page()
             if last_page is not None and current_page is not None and current_page >= last_page:
                 logger.info("Reached the final page (%d) after %d page(s).", last_page, expected_page)
@@ -300,6 +339,18 @@ class JobPortalScraper:
             if job_number:
                 self._seen_job_numbers.add(job_number)
             jobs.append(job)
+            # After the duplicate check, so every `scraped` event is a job that is
+            # really being kept -- ScrapeRunner saves it to the database from here.
+            self._emit(
+                type="scraped",
+                page=page_number,
+                index=index + 1,
+                total=card_count,
+                title=job.get("title", ""),
+                employer=job.get("employer", ""),
+                job_number=job_number,
+                job=job,
+            )
 
         if card_count > 0 and not jobs:
             logger.error(
@@ -313,12 +364,23 @@ class JobPortalScraper:
         card_text = ""
         last_html = ""
         attempt_errors: list = []
+        announced = False  # the "card" event is emitted once, not once per attempt
         for attempt in range(1, CARD_RETRY_ATTEMPTS + 1):
             try:
                 self._close_detail_panel(expected_card_count)
                 card = self._get_card(index)
                 card_title = self._read_card_text(card, "#opptitle")
                 employer = self._read_card_text(card, "#oppprovider")
+                if not announced:
+                    announced = True
+                    self._emit(
+                        type="card",
+                        page=page_number,
+                        index=index + 1,
+                        total=expected_card_count,
+                        title=card_title,
+                        employer=employer,
+                    )
                 # Full card text, read BEFORE the click, for the cross-check below --
                 # see the module docstring and _cross_check_mismatches.
                 card_text = self._read_full_card_text(card)
@@ -369,6 +431,7 @@ class JobPortalScraper:
                 return None
             except (StaleElementReferenceException, TimeoutException, PanelMismatch, RuntimeError) as exc:
                 attempt_errors.append(str(exc))
+                self._emit_retry(page_number, index, expected_card_count, card_title, attempt, exc)
                 logger.warning(
                     "Anomaly on page %d, job %d (%r), attempt %d/%d: %s",
                     page_number,
@@ -381,6 +444,7 @@ class JobPortalScraper:
             except WebDriverException as exc:
                 self._raise_if_browser_closed(exc)
                 attempt_errors.append(str(exc))
+                self._emit_retry(page_number, index, expected_card_count, card_title, attempt, exc)
                 logger.warning(
                     "WebDriver anomaly on page %d, job %d (%r), attempt %d/%d: %s",
                     page_number,
@@ -422,7 +486,30 @@ class JobPortalScraper:
                 "employer": employer,
             }
         )
+        self._emit(
+            type="skipped",
+            page=page_number,
+            index=index + 1,
+            total=expected_card_count,
+            title=card_title,
+            employer=employer,
+            reason=attempt_errors[-1] if attempt_errors else "",
+        )
         return None
+
+    def _emit_retry(
+        self, page_number: int, index: int, expected_card_count: int, card_title: str, attempt: int, exc: Exception
+    ) -> None:
+        """One `retry` event per failed attempt (see _emit and _scrape_card)."""
+        self._emit(
+            type="retry",
+            page=page_number,
+            index=index + 1,
+            total=expected_card_count,
+            title=card_title,
+            attempt=attempt,
+            reason=str(exc),
+        )
 
     def _full_page_html(self) -> str:
         """Best-effort full-page HTML for anomaly evidence when no panel HTML was ever read."""
@@ -721,6 +808,7 @@ class JobPortalScraper:
         self._skipped_cards = []
         pages = sorted({failure["page"] for failure in pending})
         logger.info("Retrying %d skipped card(s) across %d page(s).", len(pending), len(pages))
+        self._emit(type="retry_pass", cards=len(pending), pages=len(pages))
         for page in pages:
             self._check_cancelled()
             page_failures = [failure for failure in pending if failure["page"] == page]
@@ -749,6 +837,18 @@ class JobPortalScraper:
                 if job_number:
                     self._seen_job_numbers.add(job_number)
                 page_jobs.append(job)
+                # Same contract as the main sweep: one `scraped` event per accepted
+                # job, after the duplicate check, carrying the job itself.
+                self._emit(
+                    type="scraped",
+                    page=page,
+                    index=index + 1,
+                    total=len(cards),
+                    title=job.get("title", ""),
+                    employer=job.get("employer", ""),
+                    job_number=job_number,
+                    job=job,
+                )
 
             if page_jobs and self.page_callback is not None:
                 self.page_callback(page, page_jobs)

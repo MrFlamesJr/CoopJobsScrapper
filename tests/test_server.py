@@ -1,4 +1,6 @@
 import json
+import sqlite3
+import threading
 from pathlib import Path
 
 import pytest
@@ -18,12 +20,15 @@ class FakeRunner:
         self.is_running = False
         self.start_error: Exception | None = None
         self.cancel_calls = 0
+        self._changed = threading.Event()
         self._status = {
             "state": "idle",
             "message": "",
             "pages_completed": 0,
             "jobs_saved": 0,
             "anomalies": 0,
+            "events": [],
+            "version": 1,
             "error": None,
             "started_at": None,
             "finished_at": None,
@@ -44,6 +49,12 @@ class FakeRunner:
 
     def status(self):
         return dict(self._status)
+
+    def wait_for_change(self, last_version, timeout=15.0):
+        """Same contract as ScrapeRunner.wait_for_change: blocks until something
+        changes, and returns the unchanged version once `timeout` passes."""
+        self._changed.wait(timeout)
+        return self._status["version"], dict(self._status)
 
 
 @pytest.fixture
@@ -120,6 +131,50 @@ def test_list_jobs_with_query_and_total(client, seed):
     assert data["jobs"][0]["title"] == "Backend Dev"
 
 
+def test_list_jobs_without_q_has_no_match_key(client, seed):
+    seed([make_job(job_number="1")])
+    resp = client.get("/api/jobs")
+    assert "match" not in resp.get_json()["jobs"][0]
+
+
+def test_list_jobs_with_query_includes_match(client, seed):
+    seed(
+        [
+            make_job(
+                job_number="1",
+                title="Backend Dev",
+                description="Build things",
+                requirements=[],
+                qualifications=[],
+            )
+        ]
+    )
+    resp = client.get("/api/jobs", query_string={"q": "backend"})
+    job = resp.get_json()["jobs"][0]
+    assert job["match"] == {"fields": ["title"], "snippet": None}
+
+
+def test_list_jobs_with_query_includes_description_snippet(client, seed):
+    seed(
+        [
+            make_job(
+                job_number="1",
+                title="Backend Dev",
+                description="Requires strong Python skills",
+                requirements=[],
+                qualifications=[],
+            )
+        ]
+    )
+    resp = client.get("/api/jobs", query_string={"q": "python"})
+    job = resp.get_json()["jobs"][0]
+    assert job["match"]["fields"] == ["description"]
+    assert job["match"]["snippet"]["field"] == "description"
+    assert "Python" in job["match"]["snippet"]["text"]
+    for column in ("round", "salary", "description", "requirements", "qualifications"):
+        assert column not in job
+
+
 def test_list_jobs_with_filters_and_sort(client, seed):
     seed(
         [
@@ -181,6 +236,55 @@ def test_scraper_status_includes_job_count_and_last_scraped(client, seed):
     assert data["last_scraped_at"] is not None
 
 
+def _write_last_run(app, **overrides):
+    run = {
+        "state": "cancelled",
+        "started_at": "2026-01-10T12:00:00+00:00",
+        "finished_at": "2026-01-10T12:04:30+00:00",
+        "pages_completed": 3,
+        "total_pages": 39,
+        "jobs_saved": 57,
+    }
+    run.update(overrides)
+    conn = db.connect(app.config["DB_PATH"])
+    db.set_last_run(conn, run)
+    conn.close()
+    return run
+
+
+def test_scraper_status_last_run_is_null_without_a_record(client):
+    assert client.get("/api/scraper/status").get_json()["last_run"] is None
+
+
+def test_scraper_status_includes_the_last_run(client, app):
+    run = _write_last_run(app)
+    data = client.get("/api/scraper/status").get_json()
+    assert data["last_run"] == run
+
+
+def test_a_stale_running_last_run_is_reported_as_interrupted(client, app, runner):
+    """Nothing is running, so the record will never be finished: the app was killed
+    mid-scrape. Only the report changes -- the stored row is left alone."""
+    _write_last_run(app, state="running", finished_at=None)
+    runner.is_running = False
+
+    data = client.get("/api/scraper/status").get_json()
+    assert data["last_run"]["state"] == "interrupted"
+    assert data["last_run"]["pages_completed"] == 3
+
+    conn = db.connect(app.config["DB_PATH"])
+    assert db.get_last_run(conn)["state"] == "running"
+    conn.close()
+
+
+def test_a_running_last_run_stays_running_while_the_scrape_runs(client, app, runner):
+    _write_last_run(app, state="running", finished_at=None)
+    runner.is_running = True
+
+    data = client.get("/api/scraper/status").get_json()
+    assert data["last_run"]["state"] == "running"
+
+
 def test_scraper_start_success(client):
     resp = client.post("/api/scraper/start")
     assert resp.status_code == 202
@@ -214,6 +318,120 @@ def test_scraper_cancel(client, runner):
     assert resp.status_code == 200
     assert resp.get_json()["state"] == "cancelled"
     assert runner.cancel_calls == 1
+
+
+def test_scraper_stream_sends_the_full_status_first(client, seed):
+    """Only the first message is read: the stream stays open forever by design, so
+    draining it would hang the test."""
+    seed([make_job(job_number="1")])
+    resp = client.get("/api/scraper/stream", buffered=False)
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/event-stream"
+    assert resp.headers["Cache-Control"] == "no-cache"
+    assert resp.headers["X-Accel-Buffering"] == "no"
+
+    chunk = next(resp.iter_encoded())
+    resp.close()
+
+    assert chunk.startswith(b"data: ")
+    payload = json.loads(chunk[len(b"data: ") :])
+    assert payload["state"] == "idle"
+    assert payload["job_count"] == 1
+    assert payload["last_scraped_at"] is not None
+
+
+def test_scraper_stream_sends_a_whole_snapshot_on_every_change(client, runner):
+    resp = client.get("/api/scraper/stream", buffered=False)
+    stream = resp.iter_encoded()
+    next(stream)  # the initial snapshot
+
+    runner._status.update(state="scraping", message="Scraping page 3 of 39.", version=2)
+    runner._changed.set()
+    chunk = next(stream)
+    resp.close()
+
+    payload = json.loads(chunk[len(b"data: ") :])
+    assert payload["state"] == "scraping"
+    assert payload["message"] == "Scraping page 3 of 39."
+    assert payload["job_count"] == 0  # every message is the full status
+
+
+def test_scraper_stream_pings_when_nothing_changes(client, monkeypatch):
+    monkeypatch.setattr("app.server.STREAM_PING_SECONDS", 0.05)
+    resp = client.get("/api/scraper/stream", buffered=False)
+    stream = resp.iter_encoded()
+    next(stream)
+
+    chunk = next(stream)
+    resp.close()
+
+    assert chunk == b": ping\n\n"
+
+
+def test_scraper_stream_closes_its_own_connection_when_the_client_goes_away(client, monkeypatch):
+    """The generator outlives the request context, so it owns its connection -- and
+    must close it when the browser disconnects."""
+    opened = []
+    real_connect = db.connect
+
+    def tracking_connect(path):
+        conn = real_connect(path)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(db, "connect", tracking_connect)
+
+    resp = client.get("/api/scraper/stream", buffered=False)
+    next(resp.iter_encoded())
+    resp.close()
+
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")
+
+
+def test_favorites_add_list_and_remove(client, seed):
+    seed([make_job(job_number="1", title="Backend Dev")])
+    assert client.get("/api/favorites").get_json() == {"favorites": []}
+
+    added = client.put("/api/favorites/1")
+    assert added.status_code == 200
+    favorites = added.get_json()["favorites"]
+    assert len(favorites) == 1
+    assert favorites[0]["job_number"] == "1"
+    assert favorites[0]["job"]["title"] == "Backend Dev"
+
+    # idempotent
+    assert client.put("/api/favorites/1").status_code == 200
+    assert len(client.get("/api/favorites").get_json()["favorites"]) == 1
+
+    removed = client.delete("/api/favorites/1")
+    assert removed.status_code == 200
+    assert removed.get_json() == {"favorites": []}
+
+
+def test_favorites_add_unknown_job_is_404(client):
+    resp = client.put("/api/favorites/nope")
+    assert resp.status_code == 404
+    assert resp.get_json()["error"] == "not_found"
+
+
+def test_favorites_order_route_is_gone(client, seed):
+    seed([make_job(job_number="1")])
+    client.put("/api/favorites/1")
+    resp = client.put("/api/favorites/order", json={"ordered": ["1"]})
+    assert resp.status_code == 404
+
+
+def test_favorites_survive_delete_all_jobs(client, seed):
+    seed([make_job(job_number="1", title="Backend Dev")])
+    client.put("/api/favorites/1")
+    client.delete("/api/jobs")
+
+    favorites = client.get("/api/favorites").get_json()["favorites"]
+    assert len(favorites) == 1
+    assert favorites[0]["job"] is None
+    assert favorites[0]["title"] == "Backend Dev"
 
 
 def test_export_json(client, seed):

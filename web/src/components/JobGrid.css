@@ -1,19 +1,15 @@
-.job-grid__count {
-  margin: 0 0 0.7rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.job-grid__count strong {
-  color: var(--text);
-}
-
 .job-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-  /* An expanded card spans the full row; dense flow lets later cards fill the gap it leaves. */
-  grid-auto-flow: dense;
-  gap: 10px;
+  /* `--card-min` is the single knob for the column width; set it on :root to
+     tune how many columns a screen gets. `min(…, 100%)` keeps a narrow
+     window from overflowing. Top margin gives the sticky top bar / chips a
+     little breathing room before the first row. */
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--card-min, 400px), 100%), 1fr));
+  /* Plain source order: JobGrid emits a row's cards, then that row's open
+     panels (each spanning the full row, see JobPanel.css), so auto-placement
+     alone puts every panel under its own row. */
+  gap: var(--grid-gap, 16px);
+  margin-top: 0.8rem;
   transition: opacity var(--transition-fast);
 }
 
@@ -29,6 +25,17 @@
   max-width: 420px;
   margin-top: 3rem;
   color: var(--muted);
+}
+
+/* Waiting for the first jobs of a run: spinner beside the text. */
+.job-grid__empty--live {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.job-grid__empty--live p {
+  margin: 0.25rem 0 0;
 }
 
 .job-grid__empty h2 {

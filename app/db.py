@@ -43,6 +43,35 @@ _JOB_FIELDS = (
     "description",
 )
 
+# Columns query_jobs adds (on top of _COVER_COLUMNS) only when `q` has words, to
+# compute `match` -- stripped back out before the job dicts are returned.
+_MATCH_EXTRA_COLUMNS = ("round", "salary", "description", "requirements", "qualifications")
+
+# All fields `match.fields` checks, using the job's real field names.
+_MATCH_FIELDS = (
+    "job_number",
+    "title",
+    "employer",
+    "location",
+    "duration",
+    "work_model",
+    "term",
+    "round",
+    "salary",
+    "deadline_text",
+    "description",
+    "requirements",
+    "qualifications",
+)
+
+# What's visible on a (collapsed) job card, without opening it.
+_CARD_VISIBLE_FIELDS = ("job_number", "title", "employer", "location", "duration", "work_model")
+
+# Snippet search order for a word that isn't visible on the card.
+_SNIPPET_FIELDS = ("term", "round", "salary", "deadline_text", "requirements", "qualifications", "description")
+
+_SNIPPET_RADIUS = 60
+
 _SORTS = {
     "deadline": "deadline_date IS NULL, deadline_date ASC, title ASC",
     "title": "title ASC",
@@ -129,6 +158,76 @@ def _escape_like(word: str) -> str:
     return word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _field_text(job: dict[str, Any], field: str) -> str:
+    """The searchable text of one field, for a job dict whose `requirements` /
+    `qualifications` are already decoded to a list / list of dicts."""
+    if field == "requirements":
+        return " ".join(job.get("requirements") or [])
+    if field == "qualifications":
+        return ", ".join(
+            f"{q.get('name', '')}: {q.get('value', '')}" for q in job.get("qualifications") or []
+        )
+    return str(job.get(field, "") or "")
+
+
+def _find_snippet(field_texts: dict[str, str], word: str) -> dict[str, str] | None:
+    """First hit of `word` (lowercase) across `_SNIPPET_FIELDS`, as ~120 chars
+    trimmed to word boundaries with an ellipsis on each cut side."""
+    for field in _SNIPPET_FIELDS:
+        text = " ".join(field_texts[field].split())  # collapse whitespace first
+        idx = text.lower().find(word)
+        if idx == -1:
+            continue
+
+        start = max(0, idx - _SNIPPET_RADIUS)
+        end = min(len(text), idx + len(word) + _SNIPPET_RADIUS)
+        if start > 0:
+            space = text.find(" ", start, idx)
+            if space != -1:
+                start = space + 1
+        if end < len(text):
+            space = text.rfind(" ", idx + len(word), end)
+            if space != -1:
+                end = space
+
+        snippet = text[start:end].strip()
+        if start > 0:
+            snippet = "…" + snippet
+        if end < len(text):
+            snippet += "…"
+        return {"field": field, "text": snippet}
+    return None
+
+
+def _match_info(job: dict[str, Any], words: list[str]) -> tuple[dict[str, Any], int]:
+    """The `match` payload for one job plus its ranking tier (0 best), for a
+    job dict whose `requirements` / `qualifications` are already decoded."""
+    field_texts = {field: _field_text(job, field) for field in _MATCH_FIELDS}
+    lower_texts = {field: text.lower() for field, text in field_texts.items()}
+
+    fields = [field for field in _MATCH_FIELDS if any(word in lower_texts[field] for word in words)]
+    card_visible_words = {
+        word for word in words if any(word in lower_texts[field] for field in _CARD_VISIBLE_FIELDS)
+    }
+
+    snippet = None
+    for word in words:
+        if word in card_visible_words:
+            continue
+        snippet = _find_snippet(field_texts, word)
+        if snippet is not None:
+            break
+
+    if all(word in lower_texts["title"] for word in words):
+        tier = 0
+    elif all(word in card_visible_words for word in words):
+        tier = 1
+    else:
+        tier = 2
+
+    return {"fields": fields, "snippet": snippet}, tier
+
+
 def query_jobs(
     conn: sqlite3.Connection,
     q: str = "",
@@ -140,9 +239,10 @@ def query_jobs(
     where: list[str] = []
     params: list[Any] = []
 
-    for word in q.split():
+    words = [word.lower() for word in q.split()]
+    for word in words:
         where.append("search_text LIKE ? ESCAPE '\\'")
-        params.append(f"%{_escape_like(word.lower())}%")
+        params.append(f"%{_escape_like(word)}%")
 
     for field, values in (filters or {}).items():
         if field not in FACET_FIELDS or not values:
@@ -165,13 +265,30 @@ def query_jobs(
         params.append(today_str)
 
     order_by = _SORTS.get(sort, _SORTS["deadline"])
-    sql = f"SELECT {', '.join(_COVER_COLUMNS)} FROM jobs"
+    columns = _COVER_COLUMNS + _MATCH_EXTRA_COLUMNS if words else _COVER_COLUMNS
+    sql = f"SELECT {', '.join(columns)} FROM jobs"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += f" ORDER BY {order_by}"
 
     rows = conn.execute(sql, params).fetchall()
-    return [dict(row) for row in rows]
+    jobs = [dict(row) for row in rows]
+    if not words:
+        return jobs
+
+    # Rank on top of the SQL order: a stable sort by tier keeps ties in place.
+    decorated: list[tuple[int, dict[str, Any]]] = []
+    for job in jobs:
+        job["requirements"] = json.loads(job["requirements"])
+        job["qualifications"] = json.loads(job["qualifications"])
+        match, tier = _match_info(job, words)
+        for column in _MATCH_EXTRA_COLUMNS:
+            job.pop(column, None)
+        job["match"] = match
+        decorated.append((tier, job))
+
+    decorated.sort(key=lambda pair: pair[0])
+    return [job for _, job in decorated]
 
 
 def _decode_job(row: sqlite3.Row) -> dict[str, Any]:
@@ -201,7 +318,93 @@ def get_facets(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
 
 def clear_jobs(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM jobs")
+    # No jobs, nothing that could be incomplete: the last run goes with them.
+    conn.execute("DELETE FROM scrape_meta WHERE key = 'last_run'")
     conn.commit()
+
+
+def set_last_run(conn: sqlite3.Connection, run: dict[str, Any]) -> None:
+    """Remember the latest scrape run (state, timings, counters) as JSON."""
+    conn.execute(
+        """
+        INSERT INTO scrape_meta (key, value) VALUES ('last_run', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (json.dumps(run),),
+    )
+    conn.commit()
+
+
+def get_last_run(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """The latest run record, or None when there is none. Also None when the row
+    cannot be read (a database from before scrape_meta, or unreadable JSON): a
+    missing run record must never break the status endpoint."""
+    try:
+        row = conn.execute("SELECT value FROM scrape_meta WHERE key = 'last_run'").fetchone()
+    except sqlite3.Error as exc:
+        logger.warning("Could not read the last run: %s", exc)
+        return None
+    if row is None:
+        return None
+    try:
+        run = json.loads(row["value"])
+    except ValueError:
+        logger.warning("The stored last run is not valid JSON; ignoring it.")
+        return None
+    return run if isinstance(run, dict) else None
+
+
+def list_favorites(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Saved jobs, newest first. `job` is the cover dict, or None while the
+    job is missing from the jobs table (cleared or dropped by a re-scrape)."""
+    columns = ", ".join(f"j.{column} AS job_{column}" for column in _COVER_COLUMNS)
+    rows = conn.execute(
+        f"""
+        SELECT f.job_number, f.title, f.employer, f.created_at, {columns}
+        FROM favorites f LEFT JOIN jobs j ON j.job_number = f.job_number
+        ORDER BY f.created_at DESC, f.rowid DESC
+        """
+    ).fetchall()
+    favorites = []
+    for row in rows:
+        job = None
+        if row["job_id"] is not None:
+            job = {column: row[f"job_{column}"] for column in _COVER_COLUMNS}
+        favorites.append(
+            {
+                "job_number": row["job_number"],
+                "title": row["title"],
+                "employer": row["employer"],
+                "created_at": row["created_at"],
+                "job": job,
+            }
+        )
+    return favorites
+
+
+def add_favorite(conn: sqlite3.Connection, job_number: str) -> bool:
+    """Save a job, keeping a title/employer snapshot. Idempotent.
+    Returns False when no job has that number."""
+    if not job_number:
+        return False
+    row = conn.execute(
+        "SELECT title, employer FROM jobs WHERE job_number = ?", (job_number,)
+    ).fetchone()
+    if row is None:
+        return False
+    conn.execute(
+        "INSERT OR IGNORE INTO favorites (job_number, title, employer) VALUES (?, ?, ?)",
+        (job_number, row["title"], row["employer"]),
+    )
+    conn.commit()
+    return True
+
+
+def remove_favorite(conn: sqlite3.Connection, job_number: str) -> bool:
+    """Unsave a job. Returns False when it wasn't a favorite."""
+    cursor = conn.execute("DELETE FROM favorites WHERE job_number = ?", (job_number,))
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 def export_jobs(conn: sqlite3.Connection) -> list[dict[str, Any]]:

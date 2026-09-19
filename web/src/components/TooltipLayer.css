@@ -1,0 +1,32 @@
+/* The shared tooltip bubble, shown in the browser's top layer. Looks exactly
+   like the deadline chip's old ::after bubble, but can never be clipped. */
+.tooltip {
+  /* UA popover resets. Without these the browser centres the popover with
+     `inset: 0; margin: auto` and gives it its own border/padding/overflow.
+     `position: fixed` in the top layer means the containing block is the
+     viewport, which is what lets TooltipLayer.jsx use raw client rects. */
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  overflow: visible;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+  padding: 0.3rem 0.5rem;
+  /* Long text (the scraper's stop warning) wraps instead of running off. */
+  width: max-content;
+  max-width: 260px;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.tooltip--shown {
+  opacity: 1;
+}

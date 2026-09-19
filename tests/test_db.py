@@ -174,6 +174,40 @@ def test_clear_jobs_empties_table(conn, job_factory):
     assert db.count_jobs(conn) == 0
 
 
+def test_set_and_get_last_run_round_trip(conn):
+    assert db.get_last_run(conn) is None
+
+    run = {
+        "state": "cancelled",
+        "started_at": "2026-01-10T12:00:00+00:00",
+        "finished_at": "2026-01-10T12:04:30+00:00",
+        "pages_completed": 3,
+        "total_pages": 39,
+        "jobs_saved": 57,
+    }
+    db.set_last_run(conn, run)
+    assert db.get_last_run(conn) == run
+
+    db.set_last_run(conn, dict(run, state="completed"))
+    assert db.get_last_run(conn)["state"] == "completed"  # upsert, not a second row
+
+
+def test_clear_jobs_removes_the_last_run(conn, job_factory):
+    db.insert_jobs(conn, [job_factory()])
+    db.set_last_run(conn, {"state": "cancelled", "jobs_saved": 1})
+    db.clear_jobs(conn)
+    assert db.get_last_run(conn) is None
+
+
+def test_get_last_run_tolerates_unreadable_records(conn):
+    db.set_last_run(conn, {"state": "cancelled"})
+    conn.execute("UPDATE scrape_meta SET value = 'not json' WHERE key = 'last_run'")
+    assert db.get_last_run(conn) is None
+
+    conn.execute("DROP TABLE scrape_meta")  # a database from before scrape_meta existed
+    assert db.get_last_run(conn) is None
+
+
 def test_get_job_decodes_lists_and_omits_search_text(conn, job_factory):
     db.insert_jobs(
         conn,
@@ -199,6 +233,62 @@ def test_export_jobs_shape_and_order(conn, job_factory):
     assert isinstance(exported[0]["requirements"], list)
 
 
+def test_add_favorite_snapshots_job_and_is_idempotent(conn, job_factory):
+    db.insert_jobs(conn, [job_factory(job_number="F1", title="Backend Dev", employer="Acme")])
+    assert db.add_favorite(conn, "F1") is True
+    assert db.add_favorite(conn, "F1") is True
+
+    favorites = db.list_favorites(conn)
+    assert len(favorites) == 1
+    assert favorites[0]["job_number"] == "F1"
+    assert favorites[0]["title"] == "Backend Dev"
+    assert favorites[0]["employer"] == "Acme"
+    assert favorites[0]["job"]["title"] == "Backend Dev"
+
+
+def test_add_favorite_rejects_unknown_and_blank_job_number(conn):
+    assert db.add_favorite(conn, "nope") is False
+    assert db.add_favorite(conn, "") is False
+    assert db.list_favorites(conn) == []
+
+
+def test_remove_favorite(conn, job_factory):
+    db.insert_jobs(conn, [job_factory(job_number="F1")])
+    db.add_favorite(conn, "F1")
+    assert db.remove_favorite(conn, "F1") is True
+    assert db.remove_favorite(conn, "F1") is False
+    assert db.list_favorites(conn) == []
+
+
+def test_list_favorites_is_newest_first(conn, job_factory):
+    db.insert_jobs(
+        conn,
+        [job_factory(job_number="a"), job_factory(job_number="b"), job_factory(job_number="c")],
+    )
+    for job_number in ("a", "b", "c"):
+        db.add_favorite(conn, job_number)
+
+    favorites = db.list_favorites(conn)
+    assert [row["job_number"] for row in favorites] == ["c", "b", "a"]
+
+
+def test_favorites_survive_clear_jobs_and_relink(conn, job_factory):
+    db.insert_jobs(conn, [job_factory(job_number="F1", title="Backend Dev", employer="Acme")])
+    db.add_favorite(conn, "F1")
+
+    db.clear_jobs(conn)
+    orphan = db.list_favorites(conn)[0]
+    assert orphan["job"] is None
+    assert orphan["title"] == "Backend Dev"
+    assert orphan["employer"] == "Acme"
+
+    db.insert_jobs(conn, [job_factory(job_number="F1", title="Backend Dev II")])
+    relinked = db.list_favorites(conn)[0]
+    assert relinked["job"]["job_number"] == "F1"
+    assert relinked["job"]["title"] == "Backend Dev II"
+    assert relinked["title"] == "Backend Dev"  # snapshot is untouched
+
+
 def test_last_scraped_at_none_when_empty(conn):
     assert db.last_scraped_at(conn) is None
 
@@ -209,3 +299,81 @@ def test_last_scraped_at_returns_iso_string(conn, job_factory):
     assert latest is not None
     assert latest.endswith("Z")
     assert "T" in latest
+
+
+def test_search_without_q_has_no_match_key(conn, job_factory):
+    db.insert_jobs(conn, [job_factory()])
+    results = db.query_jobs(conn, q="")
+    assert "match" not in results[0]
+    assert set(results[0]) == set(db._COVER_COLUMNS)
+
+
+def test_search_match_description_only_hit(conn, job_factory):
+    db.insert_jobs(
+        conn,
+        [job_factory(description="Rocket engineering role", requirements=[], qualifications=[])],
+    )
+    results = db.query_jobs(conn, q="rocket")
+    assert len(results) == 1
+    match = results[0]["match"]
+    assert match["fields"] == ["description"]
+    assert match["snippet"] == {"field": "description", "text": "Rocket engineering role"}
+    # the extra columns selected to compute `match` never leak into the job dict
+    for column in ("round", "salary", "description", "requirements", "qualifications"):
+        assert column not in results[0]
+
+
+def test_search_match_multi_word_across_fields(conn, job_factory):
+    db.insert_jobs(
+        conn,
+        [
+            job_factory(
+                title="Java Backend Developer",
+                description="Also requires Python skills",
+                requirements=[],
+                qualifications=[],
+            )
+        ],
+    )
+    results = db.query_jobs(conn, q="java python")
+    match = results[0]["match"]
+    assert match["fields"] == ["title", "description"]
+    assert match["snippet"]["field"] == "description"
+    assert "Python" in match["snippet"]["text"]
+
+
+def test_search_tiers_preserve_the_chosen_sort(conn, job_factory):
+    db.insert_jobs(
+        conn,
+        [
+            job_factory(job_number="title-hit", title="Search Expert", requirements=[], qualifications=[]),
+            job_factory(
+                job_number="card-hit",
+                title="Apple Role",
+                employer="Search Co",
+                requirements=[],
+                qualifications=[],
+            ),
+            job_factory(
+                job_number="desc-hit",
+                title="Banana Role",
+                description="A search happens here",
+                requirements=[],
+                qualifications=[],
+            ),
+        ],
+    )
+    results = db.query_jobs(conn, q="search", sort="title")
+    assert [row["job_number"] for row in results] == ["title-hit", "card-hit", "desc-hit"]
+
+
+def test_search_match_with_literal_percent(conn, job_factory):
+    db.insert_jobs(
+        conn,
+        [job_factory(description="Save 50% today", requirements=[], qualifications=[])],
+    )
+    results = db.query_jobs(conn, q="50%")
+    assert len(results) == 1
+    match = results[0]["match"]
+    assert match["fields"] == ["description"]
+    assert "50%" in match["snippet"]["text"]

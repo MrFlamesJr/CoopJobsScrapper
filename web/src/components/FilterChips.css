@@ -1,8 +1,41 @@
+/* Zero-height marker in normal flow, just above the sticky bar. Once it
+   scrolls out of the viewport the bar below it is genuinely stuck to the
+   top, and only then may scrolling down hide it — nothing slides while the
+   page is still at the top. */
+.filter-chips-bar__sentinel {
+  height: 0;
+}
+
+/* Slides out from behind the (opaque) top bar on scroll-down, and back on
+   scroll-up. Bleeds over .app-main's side padding, same as the top bar. */
+.filter-chips-bar {
+  position: sticky;
+  top: calc(var(--app-topbar-h, 0px) + var(--topbar-h, 2.75rem));
+  z-index: 5;
+  margin: 0 -1.3rem;
+  padding: 0 1.3rem;
+  background: var(--bg);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.filter-chips-bar--hidden {
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+@media (max-width: 800px) {
+  .filter-chips-bar {
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+  }
+}
+
 .filter-chips {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.85rem;
+  padding: 0.6rem 0 0.85rem;
 }
 
 .filter-chip {
@@ -15,6 +48,7 @@
   color: var(--text);
   font-size: 0.76rem;
   padding: 0.25rem 0.6rem;
+  transition: border-color var(--transition-fast);
 }
 
 .filter-chip:hover {
@@ -25,10 +59,37 @@
   color: var(--muted);
 }
 
+/* A round badge that lights up and grows when its chip is hovered/focused.
+   Fixed size, so nothing shifts when it scales, and the cross inside is an
+   SVG centred in its own box (see FilterChips.jsx) so badge and cross share
+   one centre. */
 .filter-chip__x {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  margin-right: -0.2rem;
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1;
+  transform-origin: center;
+  transition:
+    transform var(--transition-fast),
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.filter-chip__x svg {
+  display: block;
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.filter-chip:hover .filter-chip__x,
+.filter-chip:focus-visible .filter-chip__x {
+  color: var(--text);
+  background: var(--accent-soft);
+  transform: scale(1.25);
 }
 
 .filter-chip--clear {

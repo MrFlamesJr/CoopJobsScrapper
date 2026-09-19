@@ -1,27 +1,79 @@
 .job-card {
+  display: flex;
+  flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  transition: border-color var(--transition-fast), grid-column var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    scale var(--transition-fast);
 }
 
 .job-card:hover {
-  border-color: var(--accent);
+  border-color: var(--border-hover, var(--accent));
+  /* The `scale` property (not a `transform`), so the `job-card-in` entrance's
+     own transform animation can't cancel this out mid-rise. */
+  scale: 1.012;
 }
 
-.job-card--expanded {
-  grid-column: 1 / -1;
-  border-color: var(--accent);
+/* An expanded card keeps all of its content and just reads as selected; its
+   details panel opens in the row below (see JobPanel.css). The `:hover` half
+   is there to outweigh `.job-card:hover` above, which would otherwise dim the
+   active border back to the hover one. */
+.job-card--expanded,
+.job-card--expanded:hover {
+  border-color: var(--border-active, var(--accent));
+}
+
+/* A card that arrived during a live scrape rises into place. */
+.job-card--new {
+  animation: job-card-in 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes job-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-card--new {
+    animation: none;
+  }
+}
+
+.job-card__cover {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Stretches the summary's click target over the whole cover, the footer
+   included — which is why the footer's own buttons get the z-index below. */
+.job-card__summary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
 
 .job-card__summary {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  /* A stretched <button> otherwise centres its content vertically. */
+  justify-content: flex-start;
   width: 100%;
   background: transparent;
   border: 0;
   text-align: left;
-  padding: 0.7rem 0.8rem;
+  padding: 1rem 1.15rem 0.5rem;
 }
 
 .job-card__top {
@@ -29,20 +81,20 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.45rem;
 }
 
-.job-card__number {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--muted);
+/* Above the click overlay, so the chip gets :hover and shows its tooltip.
+   It still expands the card: it lives inside the summary button. */
+.job-card__top .deadline-chip {
+  z-index: 1;
 }
 
 .job-card__title {
-  margin: 0 0 0.2rem;
-  font-size: 0.95rem;
+  margin: 0 0 0.3rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.35;
   color: var(--text);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -51,27 +103,77 @@
 }
 
 .job-card__employer {
-  font-size: 0.8rem;
+  font-size: 0.88rem;
+  line-height: 1.4;
   color: var(--muted);
-  margin-bottom: 0.5rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.job-card__meta {
+/* Only rendered when a search is on, highlighting is on, and the hit is in a
+   field the card doesn't otherwise show (see JobCard.jsx). */
+.job-card__snippet {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0 0.4rem;
-  font-size: 0.72rem;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  min-width: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.job-card__snippet-label {
+  flex: none;
   color: var(--muted);
 }
 
-.job-card__meta-item {
-  position: relative;
+/* `text-overflow: ellipsis` has no effect on a flex container's anonymous
+   text run, so the ellipsised text lives in its own flex-item span. */
+.job-card__snippet-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.job-card__meta-item:not(:last-child)::after {
-  content: "·";
-  margin-left: 0.4rem;
+.job-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.5rem;
+  padding: 0 1.15rem 0.9rem;
+  /* Pins to the bottom edge of the flex-column cover even when the title
+     above it is a single short line. */
+  margin-top: auto;
+}
+
+.job-card__meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Anything sitting after the meta (the favorites heart) stays above the
+   summary's click overlay, so clicking it doesn't expand the card. */
+.job-card__footer > :not(.job-card__meta) {
+  position: relative;
+  z-index: 1;
+}
+
+/* A search hit, wrapped by every component that renders text that could
+   contain one (see highlight.jsx). Kept here since this is the first file to
+   need it. */
+mark.hl {
+  background: var(--highlight-bg, rgba(228, 196, 101, 0.26));
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
 }

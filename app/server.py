@@ -13,6 +13,10 @@ from app import config, db
 
 logger = logging.getLogger(__name__)
 
+# How long /api/scraper/stream waits for a status change before sending a comment
+# line, so a dead connection (or a proxy's idle timeout) is noticed.
+STREAM_PING_SECONDS = 15
+
 
 def create_app(db_path, runner=None) -> Flask:
     app = Flask(__name__)
@@ -88,13 +92,70 @@ def create_app(db_path, runner=None) -> Flask:
         db.clear_jobs(conn)
         return jsonify({"deleted": deleted})
 
-    @app.get("/api/scraper/status")
-    def scraper_status():
+    @app.get("/api/favorites")
+    def favorites():
+        return jsonify({"favorites": db.list_favorites(get_conn())})
+
+    @app.put("/api/favorites/<job_number>")
+    def add_favorite(job_number: str):
         conn = get_conn()
-        status = runner.status()
+        if not db.add_favorite(conn, job_number):
+            return error("not_found", "No job with that number.", 404)
+        return jsonify({"favorites": db.list_favorites(conn)})
+
+    @app.delete("/api/favorites/<job_number>")
+    def remove_favorite(job_number: str):
+        conn = get_conn()
+        db.remove_favorite(conn, job_number)
+        return jsonify({"favorites": db.list_favorites(conn)})
+
+    def status_payload(conn: sqlite3.Connection, status: dict) -> dict:
+        """The runner's status plus the database facts the UI shows next to it."""
         status["job_count"] = db.count_jobs(conn)
         status["last_scraped_at"] = db.last_scraped_at(conn)
-        return jsonify(status)
+        last_run = db.get_last_run(conn)
+        if last_run is not None and last_run.get("state") == "running" and not runner.is_running:
+            # Nothing is running, so that record will never be finished: the app was
+            # killed mid-scrape. Reported only -- the stored row stays as it is.
+            last_run = dict(last_run, state="interrupted")
+        status["last_run"] = last_run
+        return status
+
+    @app.get("/api/scraper/status")
+    def scraper_status():
+        return jsonify(status_payload(get_conn(), runner.status()))
+
+    @app.get("/api/scraper/stream")
+    def scraper_stream():
+        """Server-sent events: the whole status snapshot on every runner change.
+
+        The generator runs after the request context is gone, so it opens -- and
+        always closes, including on the GeneratorExit raised when the browser
+        disconnects -- its own database connection instead of using `g`.
+        """
+        db_path = app.config["DB_PATH"]
+
+        def stream():
+            conn = db.connect(db_path)
+            try:
+                status = runner.status()
+                version = status.get("version", 0)
+                yield f"data: {jsonlib.dumps(status_payload(conn, status))}\n\n"
+                while True:
+                    changed_version, status = runner.wait_for_change(version, timeout=STREAM_PING_SECONDS)
+                    if changed_version == version:
+                        yield ": ping\n\n"  # nothing happened; keep the connection alive
+                        continue
+                    version = changed_version
+                    yield f"data: {jsonlib.dumps(status_payload(conn, status))}\n\n"
+            finally:
+                conn.close()
+
+        return Response(
+            stream(),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/api/scraper/start")
     def scraper_start():

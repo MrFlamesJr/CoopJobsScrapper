@@ -1,5 +1,5 @@
 .scraper-dialog {
-  width: min(480px, calc(100vw - 2.5rem));
+  width: min(560px, calc(100vw - 2.5rem));
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
@@ -62,6 +62,10 @@
   color: var(--tone-today-fg);
   font-size: 0.85rem;
   margin: 0;
+}
+
+.scraper-dialog__bad {
+  color: var(--tone-today-fg);
 }
 
 .scraper-dialog__failed-list {
@@ -137,10 +141,43 @@
   border-color: var(--tone-today-fg);
 }
 
-.scraper-dialog__danger--confirm {
+/* "Abort scrape" shows its warning in the shared top-layer tooltip (it carries
+   `data-tooltip`); this is the same text for screen readers only, kept out of
+   flow so it doesn't take up a slot in the action row. */
+.scraper-dialog__tip-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Inline "Abort this scrape?" confirmation, replacing the action row. */
+.scraper-dialog__stop-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
   background: var(--tone-today-bg);
-  border-color: var(--tone-today-fg);
-  font-weight: 600;
+  border: 1px solid var(--tone-today-fg);
+  border-radius: var(--radius-md);
+}
+
+.scraper-dialog__stop-confirm-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.scraper-dialog__stop-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .scraper-dialog__steps {
@@ -196,4 +233,298 @@
 
 .scraper-dialog__step-label {
   padding-top: 0.15rem;
+}
+
+/* "Don't touch the scraper's Chrome window" while scraping. Reuses the
+   deadline chip's amber tone. */
+.scraper-dialog__callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  background: var(--tone-tomorrow-bg);
+  border: 1px solid var(--tone-tomorrow-fg);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.75rem;
+  font-size: 0.83rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.scraper-dialog__callout-icon {
+  color: var(--tone-tomorrow-fg);
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+/* "A Chrome window is opening…" — informational, not a warning, so it gets
+   the accent tone instead of the callout's default amber. */
+.scraper-dialog__callout--info {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.scraper-dialog__callout--info .scraper-dialog__callout-icon {
+  color: var(--accent);
+}
+
+/* Ruled off from the step list above it. */
+.scraper-dialog__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+/* The donut leads the line, the text is centred against it. */
+.scraper-dialog__progress-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+/* Only the text ellipsises: a descendant selector here would also catch the
+   donut's label and knock it off centre. */
+.scraper-dialog__progress-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Spinner line replacing the action row while the scrape unwinds. */
+.scraper-dialog__aborting {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--tone-tomorrow-fg);
+}
+
+/* Titled "Total" bar: 12px striped pill, blue, indeterminate while the page
+   count isn't known yet. */
+.scraper-dialog__total {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.scraper-dialog__total-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.scraper-dialog__total-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.scraper-dialog__total-bar {
+  height: 12px;
+  border-radius: 999px;
+  background: var(--raised);
+  overflow: hidden;
+}
+
+.scraper-dialog__total-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background-color: var(--progress-total, var(--accent));
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.22) 0,
+    rgba(255, 255, 255, 0.22) 8px,
+    transparent 8px,
+    transparent 16px
+  );
+  background-size: 16px 16px;
+  animation: scraper-dialog-stripes 0.8s linear infinite;
+  transition: width 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.scraper-dialog__total-fill--settle {
+  transition-timing-function: ease-out;
+}
+
+/* No known percentage yet: fill the whole track, stripes alone read as
+   "working". */
+.scraper-dialog__total-fill--indeterminate {
+  width: 100%;
+}
+
+@keyframes scraper-dialog-stripes {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 16px 0;
+  }
+}
+
+.scraper-dialog__rate {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 52px "This page" donut: a track ring plus a coloured value ring drawn with
+   pathLength="100" so stroke-dash* maps straight onto the percent. */
+.scraper-dialog__donut {
+  position: relative;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+}
+
+.scraper-dialog__donut-svg {
+  /* Block, or the inline baseline gap makes the ring sit off centre. */
+  display: block;
+  transform: rotate(-90deg);
+}
+
+.scraper-dialog__donut-track {
+  fill: none;
+  stroke: var(--raised);
+  stroke-width: 5;
+}
+
+.scraper-dialog__donut-value {
+  fill: none;
+  stroke: var(--progress-page, var(--tone-open-fg));
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.scraper-dialog__donut-value--settle {
+  transition-timing-function: ease-out;
+}
+
+.scraper-dialog__donut-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scraper-dialog__total-fill {
+    animation: none;
+    transition: none;
+  }
+
+  .scraper-dialog__donut-value {
+    transition: none;
+  }
+}
+
+.scraper-dialog__counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.scraper-dialog__counters strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.scraper-dialog__bad strong {
+  color: var(--tone-today-fg);
+}
+
+/* Live activity log. */
+.scraper-dialog__log {
+  max-height: 170px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.scraper-dialog__log-line--warn {
+  color: var(--tone-tomorrow-fg);
+}
+
+.scraper-dialog__log-line--error {
+  color: var(--tone-today-fg);
+}
+
+.scraper-dialog__log-time {
+  margin-right: 0.5rem;
+  opacity: 0.6;
+}
+
+.scraper-dialog__log-details > summary {
+  font-size: 0.82rem;
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: 0.4rem;
+}
+
+.scraper-dialog__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.scraper-dialog__report {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.scraper-dialog__report-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.2rem;
+  margin: 0;
+}
+
+.scraper-dialog__report-stats dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.scraper-dialog__report-stats dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.scraper-dialog__failed-page {
+  margin-right: 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  opacity: 0.8;
 }

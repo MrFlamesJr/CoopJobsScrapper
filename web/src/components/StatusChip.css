@@ -1,3 +1,18 @@
+/* The chip, its section title and the progress bar read as one block. */
+.status-chip-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.status-chip__section {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .status-chip {
   display: flex;
   align-items: center;
@@ -40,6 +55,11 @@
   background: var(--status-idle);
 }
 
+/* A run that ended early: the job list may be missing pages. */
+.status-chip__dot--warn {
+  background: var(--tone-tomorrow-fg);
+}
+
 @keyframes status-pulse {
   0%,
   100% {
@@ -78,4 +98,31 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* "Don't touch the Chrome window" while scraping, and the incomplete-run
+   warning once it has ended. */
+.status-chip__sub--warn {
+  color: var(--tone-tomorrow-fg);
+}
+
+/* Thin progress bar under the chip, only while scraping. */
+.status-chip__progress {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--raised);
+  overflow: hidden;
+}
+
+.status-chip__progress-bar {
+  display: block;
+  height: 100%;
+  background: var(--progress-total, var(--accent));
+  transition: width var(--transition-medium);
+}
+
+/* Page-progress fallback while total_pages isn't known yet: same green as
+   the dialog's This-page donut, instead of the Total bar's blue. */
+.status-chip__progress-bar--page {
+  background: var(--progress-page, var(--tone-open-fg));
 }

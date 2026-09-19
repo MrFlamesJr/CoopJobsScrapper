@@ -4,7 +4,7 @@
   left: 0;
   bottom: 0;
   width: var(--sidebar-width);
-  background: var(--surface);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -14,7 +14,7 @@
 .sidebar__scroll {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 1rem 0.9rem;
+  padding: 1.1rem 1rem;
 }
 
 .sidebar__brand {
@@ -25,15 +25,55 @@
   color: var(--text);
 }
 
+/* Search box + highlighter toggle share a row: the native × sits in the
+   input's own right edge, so the toggle lives beside it instead of inside. */
+.sidebar__search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
 .sidebar__search {
-  width: 100%;
-  background: var(--bg);
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--sidebar-inset);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
   padding: 0.5rem 0.65rem;
   font-size: 0.85rem;
-  margin-bottom: 0.75rem;
+}
+
+.sidebar__highlight {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.sidebar__highlight svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar__highlight:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+/* After the hover rule, so the pressed tint wins while hovered. */
+.sidebar__highlight[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .sidebar__field {
@@ -51,21 +91,19 @@
 }
 
 .sidebar__field select {
-  background: var(--bg);
+  background: var(--sidebar-inset);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
   padding: 0.4rem 0.5rem;
   font-size: 0.85rem;
-}
-
-.sidebar__toggles {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-bottom: 0.9rem;
-  padding-bottom: 0.9rem;
-  border-bottom: 1px solid var(--border);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%20fill='none'%20stroke='%238b939c'%20stroke-width='1.6'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M4%206l4%204%204-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.55rem center;
+  background-size: 16px;
+  padding-right: 1.9rem;
 }
 
 .sidebar__toggle {
@@ -74,24 +112,42 @@
   gap: 0.5rem;
   font-size: 0.83rem;
   cursor: pointer;
+  line-height: 1.25;
+  margin-bottom: 0.9rem;
 }
 
-.sidebar__toggle input {
-  accent-color: var(--accent);
+/* The filter groups read as one panel, inset a shade darker than the sidebar. */
+.sidebar__filters {
+  display: block;
+  background: var(--sidebar-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.8rem 0.35rem;
 }
 
 .sidebar__filters-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.4rem;
   font-size: 0.72rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-bottom: 0.2rem;
+  padding-bottom: 0.5rem;
+}
+
+.sidebar__filters-count {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  letter-spacing: normal;
 }
 
 .sidebar__clear {
+  margin-left: auto;
   background: transparent;
   border: 0;
   color: var(--accent);
@@ -110,17 +166,29 @@
   gap: 0.55rem;
 }
 
-.sidebar__export {
-  text-align: center;
-  font-size: 0.78rem;
-  color: var(--muted);
-  text-decoration: none;
-  padding: 0.3rem;
-  border-radius: var(--radius-sm);
+/* Drag strip on the right edge; double-click resets the width. */
+.sidebar__resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
 }
 
-.sidebar__export:hover {
-  color: var(--accent);
+.sidebar__resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.sidebar__resizer:hover::after,
+.sidebar__resizer:active::after {
+  background: var(--accent);
 }
 
 .sidebar-backdrop {
@@ -136,6 +204,10 @@
 
   .sidebar--open {
     transform: translateX(0);
+  }
+
+  .sidebar__resizer {
+    display: none;
   }
 
   .sidebar-backdrop {

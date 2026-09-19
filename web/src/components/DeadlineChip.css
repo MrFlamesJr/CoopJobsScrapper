@@ -1,4 +1,7 @@
 .deadline-chip {
+  /* Positioned so `.job-card__top .deadline-chip`'s z-index can lift it above
+     the card summary's click overlay. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   white-space: nowrap;
@@ -7,7 +10,18 @@
   line-height: 1.4;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
+  transition: box-shadow var(--transition-medium);
 }
+
+/* Every tone glows in its own color, softly. */
+.deadline-chip:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, currentColor 40%, transparent),
+    0 0 6px color-mix(in srgb, currentColor 16%, transparent);
+}
+
+/* The exact deadline shows in the shared top-layer bubble (TooltipLayer),
+   which `data-tooltip` on the chip is enough to trigger. */
 
 .deadline-chip--closed {
   background: var(--tone-closed-bg);

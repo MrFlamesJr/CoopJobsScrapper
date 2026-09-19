@@ -21,6 +21,23 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_job_number ON jobs(job_number) WHERE job_number <> '';
 
+-- Favorites outlive the jobs table: `clear_jobs` never touches them, and they
+-- re-link to a re-scraped job through job_number.
+CREATE TABLE IF NOT EXISTS favorites (
+  job_number TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',      -- snapshot, shown if the job disappears after a re-scrape
+  employer TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Small key/value store for facts about the scraper itself, not the jobs.
+-- `last_run` holds the JSON record of the latest run, so the UI still knows an
+-- aborted (or never finished) run left an incomplete job list behind after a restart.
+CREATE TABLE IF NOT EXISTS scrape_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE VIEW IF NOT EXISTS job_facets AS
   SELECT 'employer' AS field, employer AS value, COUNT(*) AS job_count FROM jobs WHERE employer <> '' GROUP BY employer
   UNION ALL
