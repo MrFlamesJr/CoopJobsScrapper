@@ -4,6 +4,7 @@
 // (web/src/db) instead of the Flask API.
 
 import { dbClient, requestPersistentStorage } from "./db/client.js";
+import { getExtensionBridge } from "./extensionBridge.js";
 
 // OPFS can otherwise be evicted under storage pressure like any other origin
 // storage; this is best-effort and never blocks anything on its result.
@@ -99,54 +100,119 @@ export async function removeFavorite(jobNumber) {
   return { favorites };
 }
 
-// --- Scraper endpoints -------------------------------------------------
-// TODO(phase 3): rewire the scraper to save straight into the in-browser
-// SQLite database; until then these still talk to the (soon to be retired)
-// Flask server, via the dev-server /api proxy in vite.config.js.
+// --- Scraper -------------------------------------------------------------
+// Scraping now happens in the CoopJobs browser extension (extension/src),
+// not a Flask server: startScraper/cancelScraper talk to it through
+// extensionBridge.js, and subscribeScraperStatus replaces the old
+// /api/scraper/stream EventSource. The runner's status object (state,
+// message, pages_completed, jobs_saved, ..., version) is unchanged; only
+// job_count / last_scraped_at / last_run are still added here, from the
+// local database, exactly like server.py's status_payload did.
 
-async function request(path, options = {}) {
-  let response;
-  try {
-    response = await fetch(path, options);
-  } catch (cause) {
-    const err = new Error("Network error — is the server running?");
-    err.code = "network_error";
-    err.cause = cause;
-    throw err;
-  }
+// Mirrors runner.js's RUNNING_STATES (and runner.py's _RUNNING_STATES before
+// it): "cancelling" still counts as running.
+const RUNNING_STATES = new Set(["starting", "waiting_for_login", "scraping", "cancelling"]);
 
-  if (response.status === 204) return null;
-
-  const contentType = response.headers.get("content-type") || "";
-  const isJson = contentType.includes("application/json");
-  const body = isJson ? await response.json().catch(() => null) : null;
-
-  if (!response.ok) {
-    const err = new Error(
-      (body && body.message) || `Request failed (${response.status})`,
-    );
-    err.code = (body && body.error) || `http_${response.status}`;
-    err.status = response.status;
-    throw err;
-  }
-
-  return body;
+function databaseNotEmptyError() {
+  const err = new Error("Clear the existing jobs before scraping again.");
+  err.code = "database_not_empty";
+  err.status = 409;
+  return err;
 }
 
-// Server-sent events: the same status object as /api/scraper/status, pushed
-// on every change.
-export const SCRAPER_STREAM_URL = "/api/scraper/stream";
-
-export function fetchScraperStatus(signal) {
-  return request("/api/scraper/status", { signal });
+function lastRunRecordFromStatus(status) {
+  return {
+    state: status.state,
+    started_at: status.started_at ?? null,
+    finished_at: status.finished_at ?? null,
+    pages_completed: status.pages_completed ?? 0,
+    total_pages: status.total_pages ?? null,
+    jobs_saved: status.jobs_saved ?? 0,
+  };
 }
 
-export function startScraper() {
-  return request("/api/scraper/start", { method: "POST" });
+/** Adds job_count/last_scraped_at/last_run to a runner status snapshot, the
+ * same database facts server.py's status_payload added next to
+ * runner.status(). A last_run row still marked "running" while nothing is
+ * actually running (the extension/browser was closed mid-scrape) is
+ * reported as "interrupted", same as before -- the stored row is untouched. */
+export async function enrichScraperStatus(status) {
+  const [jobCount, lastScrapedAt, storedLastRun] = await Promise.all([
+    dbClient.countJobs(),
+    dbClient.lastScrapedAt(),
+    dbClient.getLastRun(),
+  ]);
+  let lastRun = storedLastRun;
+  if (lastRun && lastRun.state === "running" && !RUNNING_STATES.has(status.state)) {
+    lastRun = { ...lastRun, state: "interrupted" };
+  }
+  return { ...status, job_count: jobCount, last_scraped_at: lastScrapedAt, last_run: lastRun };
+}
+
+/** Subscribes to the extension's status stream (replaces the old
+ * /api/scraper/stream EventSource). `callback` receives each snapshot
+ * already enriched with the database facts above. Also records `last_run`
+ * the moment a run reaches a terminal state -- idempotently, the same
+ * guarantee runner.py's _save_last_run gave via its `finally` block -- since
+ * the extension itself has no access to this database to do it. Returns an
+ * unsubscribe function. */
+export function subscribeScraperStatus(callback) {
+  return getExtensionBridge().subscribe(async (status) => {
+    if (status.state !== "idle" && !RUNNING_STATES.has(status.state)) {
+      try {
+        await dbClient.setLastRun(lastRunRecordFromStatus(status));
+      } catch {
+        // Best-effort, same as runner.py's _save_last_run: must never break the UI.
+      }
+    }
+    let enriched;
+    try {
+      enriched = await enrichScraperStatus(status);
+    } catch {
+      return; // a transient DB read failure; the next snapshot retries
+    }
+    callback(enriched);
+  });
+}
+
+/** One-off refresh for state changes the extension never announces (e.g.
+ * "Clear all jobs" changes job_count without any scraper event) -- re-reads
+ * the database facts around whatever runner state the caller already has. */
+export function refreshScraperStatus(currentStatus) {
+  return enrichScraperStatus(currentStatus || { state: "idle" });
+}
+
+/** Checks whether the extension is installed/reachable and speaks a
+ * protocol we understand -- see extensionBridge.js's detect(). */
+export function checkExtension() {
+  return getExtensionBridge().detect();
+}
+
+export async function startScraper() {
+  const count = await dbClient.countJobs();
+  if (count > 0) throw databaseNotEmptyError();
+
+  // Written before the extension is even asked to start: if the browser is
+  // killed mid-scrape, this unfinished record is what tells the UI the job
+  // list is incomplete (see enrichScraperStatus's "interrupted" handling) --
+  // same guarantee as runner.py's start(), just made here since the
+  // extension has no database access of its own.
+  const startedAt = new Date().toISOString();
+  await dbClient.setLastRun({
+    state: "running",
+    started_at: startedAt,
+    finished_at: null,
+    pages_completed: 0,
+    total_pages: null,
+    jobs_saved: 0,
+  });
+  getExtensionBridge().start();
+  return { state: "starting", message: "Starting the scraper browser.", started_at: startedAt };
 }
 
 export function cancelScraper() {
-  return request("/api/scraper/cancel", { method: "POST" });
+  getExtensionBridge().cancel();
+  return { state: "cancelling", message: "Aborting the scrape." };
 }
 
 // --- Export / database file ---------------------------------------------
