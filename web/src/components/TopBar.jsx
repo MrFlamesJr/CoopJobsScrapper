@@ -1,6 +1,8 @@
+import { useEffect, useRef, useState } from "react";
 import Spinner from "./Spinner.jsx";
+import SlideToConfirm from "./SlideToConfirm.jsx";
 import { HeartIcon } from "./FavoriteButton.jsx";
-import { exportJobsJson } from "../api.js";
+import { downloadDatabase, exportJobsJson, importDatabase } from "../api.js";
 import { incompleteRun, runPageLabel } from "../scrapeProgress.js";
 import "./TopBar.css";
 
@@ -51,9 +53,72 @@ export default function TopBar({
   favoritesCount,
   pulseKey,
   onOpenFavorites,
+  onDatabaseImported,
 }) {
   // Same slot as the live line, so only one of the two is ever in the row.
   const incomplete = scraperRunning ? null : incompleteRun(scraperStatus);
+
+  const fileInputRef = useRef(null);
+  const confirmDialogRef = useRef(null);
+  const [pendingFile, setPendingFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [dbError, setDbError] = useState(null);
+
+  useEffect(() => {
+    const dialog = confirmDialogRef.current;
+    if (!dialog) return;
+    if (pendingFile && !dialog.open) dialog.showModal();
+    if (!pendingFile && dialog.open) dialog.close();
+  }, [pendingFile]);
+
+  useEffect(() => {
+    const dialog = confirmDialogRef.current;
+    if (!dialog) return undefined;
+    const handleClose = () => {
+      setPendingFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    dialog.addEventListener("close", handleClose);
+    return () => dialog.removeEventListener("close", handleClose);
+  }, []);
+
+  const handleDownloadDatabase = async () => {
+    setDbError(null);
+    try {
+      await downloadDatabase();
+    } catch (err) {
+      setDbError(err.message);
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setDbError(null);
+      setPendingFile(file);
+    }
+  };
+
+  const handleImportConfirm = async () => {
+    if (!pendingFile) return;
+    setImporting(true);
+    setDbError(null);
+    try {
+      await importDatabase(pendingFile);
+      onDatabaseImported?.();
+      setPendingFile(null);
+    } catch (err) {
+      setDbError(err.message);
+      throw err; // lets SlideToConfirm spring back
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleCancelImport = () => {
+    confirmDialogRef.current?.close();
+  };
 
   return (
     <div className="top-bar">
@@ -114,6 +179,61 @@ export default function TopBar({
           <span className="top-bar__label">Export JSON</span>
         </button>
       )}
+
+      <button type="button" className="top-bar__button" onClick={handleDownloadDatabase}>
+        <span className="top-bar__label">Download database</span>
+      </button>
+
+      <button
+        type="button"
+        className="top-bar__button"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={scraperRunning}
+        title={scraperRunning ? "Can't open a database while a scrape is running" : undefined}
+      >
+        <span className="top-bar__label">Open database</span>
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".db,.sqlite,.sqlite3"
+        className="top-bar__file-input"
+        onChange={handleFileChange}
+      />
+
+      {dbError && <span className="top-bar__db-error">{dbError}</span>}
+
+      <dialog
+        ref={confirmDialogRef}
+        className="top-bar__confirm-dialog"
+        aria-label="Replace database"
+        onClick={(e) => {
+          if (e.target === confirmDialogRef.current) handleCancelImport();
+        }}
+      >
+        <div className="top-bar__confirm-body">
+          <p className="top-bar__confirm-text">
+            <strong>Replace the current database?</strong> This replaces all jobs and favorites in
+            this browser.
+          </p>
+          <div className="top-bar__confirm-actions">
+            <button
+              type="button"
+              className="top-bar__confirm-cancel"
+              onClick={handleCancelImport}
+              disabled={importing}
+            >
+              Cancel
+            </button>
+            <SlideToConfirm
+              label="Slide to replace database"
+              busyLabel="Replacing…"
+              busy={importing}
+              onConfirm={handleImportConfirm}
+            />
+          </div>
+        </div>
+      </dialog>
 
       <button
         type="button"

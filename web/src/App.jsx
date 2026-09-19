@@ -239,6 +239,7 @@ export default function App() {
             favoritesCount={favorites.favorites.length}
             pulseKey={favorites.pulseKey}
             onOpenFavorites={() => setFavoritesOpen(true)}
+            onDatabaseImported={handleScrapeFinished}
           />
           <FilterChips
             filters={facetFilters}

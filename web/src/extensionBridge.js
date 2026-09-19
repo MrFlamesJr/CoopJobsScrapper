@@ -11,6 +11,8 @@
 //   app -> ext: {source:"coopjobs-app", type:"ack", seq, inserted, error}
 //   ext -> app: {source:"coopjobs-app", type:"status", status}   (status.outbox carries unacked jobs)
 //   ext -> app: {source:"coopjobs-ext", type:"ping"}              heartbeat, every ~15s
+//   app -> ext: {source:"coopjobs-app", type:"getDebugSnapshots"}
+//   ext -> app: {source:"coopjobs-ext", type:"debugSnapshots", snapshots}
 //
 // `createExtensionBridge` takes an injectable `win` (default: the real
 // global `window`) and `db` (default: web/src/db/client.js's dbClient) so it
@@ -168,6 +170,38 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
     post({ type: "getStatus" });
   }
 
+  /** Asks the extension for its recorded debug snapshots (evidence captured
+   * for failed cards / anomalies, background/index.js's DEBUG_SNAPSHOTS_KEY)
+   * and resolves with the array, or [] after ~2s of silence -- same
+   * one-shot-listener shape as detect(). */
+  function getDebugSnapshots() {
+    return new Promise((resolve) => {
+      if (!win) {
+        resolve([]);
+        return;
+      }
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        win.removeEventListener("message", onReply);
+        clearTimeout(timer);
+        resolve(result);
+      };
+      function onReply(event) {
+        if (event.source !== win) return;
+        if (win.location && event.origin !== win.location.origin) return;
+        const data = event.data;
+        if (!data || data.source !== "coopjobs-ext" || data.type !== "debugSnapshots") return;
+        finish(data.snapshots || []);
+      }
+      const timer = setTimeout(() => finish([]), 2000);
+      win.addEventListener("message", onReply);
+      ensureListening();
+      post({ type: "getDebugSnapshots" });
+    });
+  }
+
   return {
     detect,
     subscribe,
@@ -176,6 +210,7 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
     start,
     cancel,
     requestStatus,
+    getDebugSnapshots,
     // exposed for tests only: lets a test push a status message without a
     // real window round trip.
     _handleMessageForTests: onMessage,

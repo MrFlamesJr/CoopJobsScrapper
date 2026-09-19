@@ -8,4 +8,5 @@ dist/
 *.spec
 web/node_modules/
 web/dist/
+web/public/coopjobs-extension.zip
 .env

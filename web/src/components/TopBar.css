@@ -88,6 +88,68 @@
   border-color: var(--border-hover, var(--accent));
 }
 
+.top-bar__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.top-bar__button:disabled:hover {
+  border-color: var(--border);
+}
+
+.top-bar__file-input {
+  display: none;
+}
+
+.top-bar__db-error {
+  color: var(--tone-today-fg);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* "Replace the current database?" confirmation, opened by "Open database". */
+.top-bar__confirm-dialog {
+  width: min(400px, calc(100vw - 2.5rem));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow-2);
+}
+
+.top-bar__confirm-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.top-bar__confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.top-bar__confirm-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.top-bar__confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.top-bar__confirm-cancel {
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+}
+
 .top-bar__icon {
   width: 14px;
   height: 14px;

@@ -27,11 +27,13 @@
 //   -> {type: "cancel"}                                     user clicked "Cancel"
 //   -> {type: "getStatus"}                                   ask for a fresh snapshot
 //   -> {type: "ack", seq, inserted, error}                   one outbox job was (or wasn't) saved
+//   -> {type: "getDebugSnapshots"}                           ask for the recorded debug evidence
 //   <- {type: "status", status}                               status snapshot incl. outbox, pushed on every change
 //     and once immediately on connect (status.outbox carries every
 //     still-unacknowledged job, so a reconnecting tab drains exactly what it
 //     missed -- no separate "job" message type is needed).
 //   <- {type: "ping"}                                        heartbeat, every 15s
+//   <- {type: "debugSnapshots", snapshots}                   reply to getDebugSnapshots, from chrome.storage.local
 
 import { ScrapeRunner } from "./runner.js";
 
@@ -202,6 +204,17 @@ async function recordDebugSnapshot(message) {
   }
 }
 
+async function readDebugSnapshots() {
+  if (!chrome.storage?.local) return [];
+  try {
+    const { [DEBUG_SNAPSHOTS_KEY]: existing = [] } = await chrome.storage.local.get(DEBUG_SNAPSHOTS_KEY);
+    return existing;
+  } catch (exc) {
+    console.warn("[CoopJobs] could not read debug snapshots:", exc);
+    return [];
+  }
+}
+
 function setUpBridgePort(port) {
   bridgePorts.add(port);
   port.postMessage({ type: "status", status: runner.status() });
@@ -251,6 +264,15 @@ async function handleBridgeMessage(message, port) {
     case "ack":
       runner.ack(message.seq, { inserted: message.inserted, error: message.error });
       break;
+    case "getDebugSnapshots": {
+      const snapshots = await readDebugSnapshots();
+      try {
+        port.postMessage({ type: "debugSnapshots", snapshots });
+      } catch {
+        // The bridge tab is already gone; onDisconnect will clean it up.
+      }
+      break;
+    }
     default:
       break;
   }

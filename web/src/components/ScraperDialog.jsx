@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Spinner from "./Spinner.jsx";
 import SlideToConfirm from "./SlideToConfirm.jsx";
 import useScrapeRate from "../hooks/useScrapeRate.js";
 import { totalPercent, pagePercent, incompleteRun, runPageLabel } from "../scrapeProgress.js";
+import { downloadDebugBundle } from "../api.js";
+import { EDGE_STORE_URL, EXTENSION_ZIP_URL, detectBrowser } from "../extensionInfo.js";
 import "./ScraperDialog.css";
 
 const STEPS = [
@@ -152,16 +154,126 @@ function PageDonut({ status }) {
   );
 }
 
+/** "chrome://extensions" (or "edge://extensions"): a browser-internal URL
+    can't be turned into a working link from a web page, so it's shown as
+    copyable text instead. */
+function CopyableCode({ text }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef(null);
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+  const copy = () => {
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(true);
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => setCopied(false), 1200);
+      },
+      () => {
+        // Clipboard permission denied/unavailable: nothing else to do.
+      },
+    );
+  };
+  return (
+    <button type="button" className="scraper-dialog__copy-code" onClick={copy}>
+      <code>{text}</code>
+      <span aria-hidden="true">{copied ? "Copied" : "Copy"}</span>
+    </button>
+  );
+}
+
+/** The 4 manual "Load unpacked" steps, shared by the missing/outdated panels
+    and by both browsers -- only the internal extensions-page URL differs. */
+function InstallSteps({ browser }) {
+  const extensionsUrl = browser === "edge" ? "edge://extensions" : "chrome://extensions";
+  return (
+    <ol className="scraper-dialog__install-steps">
+      <li>Unzip the downloaded file.</li>
+      <li>
+        Open <CopyableCode text={extensionsUrl} />
+      </li>
+      <li>
+        Turn on <strong>Developer mode</strong> (top right).
+      </li>
+      <li>
+        Click <strong>Load unpacked</strong> and select the unzipped folder.
+      </li>
+    </ol>
+  );
+}
+
+/** "Step 1 – Install the CoopJobs extension" (extension === "missing") or
+    "Update the extension" (extension === "outdated"), shown before the Start
+    button. Browsing an imported database never needs any of this -- only
+    starting a scrape does. */
+function ExtensionGate({ variant, browser, onRecheck }) {
+  const blocked = variant === "missing" && browser === "other";
+  return (
+    <div className="scraper-dialog__install">
+      <h3 className="scraper-dialog__install-title">
+        {variant === "outdated" ? "Update the extension" : "Step 1 – Install the CoopJobs extension"}
+      </h3>
+      <div className="scraper-dialog__callout" role="note">
+        <span className="scraper-dialog__callout-icon" aria-hidden="true">
+          ⚠
+        </span>
+        <span>The scraper only works in Google Chrome and Microsoft Edge on a computer.</span>
+      </div>
+
+      {blocked ? (
+        <p className="scraper-dialog__muted">
+          Scraping isn't available in this browser. Browsing an imported database still works —
+          use "Open database" above to load a <code>.db</code> file.
+        </p>
+      ) : (
+        <>
+          {browser === "edge" ? (
+            <a
+              className="scraper-dialog__primary scraper-dialog__install-link"
+              href={EDGE_STORE_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Get it from Microsoft Edge Add-ons
+            </a>
+          ) : (
+            <a className="scraper-dialog__primary scraper-dialog__install-link" href={EXTENSION_ZIP_URL} download>
+              Download extension (.zip)
+            </a>
+          )}
+
+          {browser === "edge" ? (
+            <details className="scraper-dialog__install-manual">
+              <summary>Or install it manually</summary>
+              <a className="scraper-dialog__install-link" href={EXTENSION_ZIP_URL} download>
+                Download extension (.zip)
+              </a>
+              <InstallSteps browser={browser} />
+            </details>
+          ) : (
+            <InstallSteps browser={browser} />
+          )}
+
+          <button type="button" className="scraper-dialog__secondary" onClick={onRecheck}>
+            {variant === "outdated" ? "I updated it – check again" : "I installed it – check again"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function ScraperDialog({ open, onClose, scraper, onJobsChanged }) {
   const dialogRef = useRef(null);
   const keepScrapingRef = useRef(null);
   const lastStepRef = useRef(0);
-  const { status, connection, start, cancel, deleteAll } = scraper;
+  const { status, connection, extension, recheckExtension, start, cancel, deleteAll } = scraper;
+  const browser = useMemo(() => detectBrowser(), []);
 
   const [localError, setLocalError] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmingStop, setConfirmingStop] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [debugDownloading, setDebugDownloading] = useState(false);
 
   // The log follows the newest line only while the user is already at the
   // bottom, so scrolling up to read isn't yanked back.
@@ -207,6 +319,16 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
   useEffect(() => {
     if (confirmingStop) keepScrapingRef.current?.focus();
   }, [confirmingStop]);
+
+  // Refocusing the tab is the moment a user comes back from installing the
+  // extension in a new tab -- no reload needed, same as the "check again"
+  // button (plan §1 step 2).
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleFocus = () => recheckExtension();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [open, recheckExtension]);
 
   const state = status?.state || "idle";
   const running = RUNNING_STATES.has(state);
@@ -255,6 +377,18 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
       throw err; // lets SlideToConfirm spring back
     } finally {
       setStopping(false);
+    }
+  };
+
+  const handleDownloadDebug = async () => {
+    setDebugDownloading(true);
+    setLocalError(null);
+    try {
+      await downloadDebugBundle();
+    } catch (err) {
+      setLocalError(err.message);
+    } finally {
+      setDebugDownloading(false);
     }
   };
 
@@ -404,6 +538,17 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                   <p className="scraper-dialog__success">All jobs scraped, 0 skipped.</p>
                 )}
 
+                {(status.anomalies > 0 || state === "failed") && (
+                  <button
+                    type="button"
+                    className="scraper-dialog__secondary"
+                    onClick={handleDownloadDebug}
+                    disabled={debugDownloading}
+                  >
+                    {debugDownloading ? "Preparing debug bundle…" : "Download debug bundle"}
+                  </button>
+                )}
+
                 {events.length > 0 && (
                   <details className="scraper-dialog__log-details">
                     <summary>Full log ({events.length} lines)</summary>
@@ -413,30 +558,44 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
               </div>
             )}
 
-            <button
-              type="button"
-              className="scraper-dialog__primary"
-              onClick={handleStart}
-              disabled={jobCount > 0}
-              aria-describedby={jobCount > 0 ? "scraper-start-hint" : undefined}
-            >
-              Start scrape
-            </button>
-            {jobCount > 0 ? (
-              <div className="scraper-dialog__callout" role="note" id="scraper-start-hint">
-                <span className="scraper-dialog__callout-icon" aria-hidden="true">
-                  ⚠
-                </span>
-                <span>
-                  <strong>Can't start a new scrape yet.</strong> There are already {fmt(jobCount)} jobs
-                  in the database and a scrape needs an empty one. Delete all jobs first (slider above),
-                  then start again.
-                </span>
-              </div>
-            ) : (
+            {extension === "checking" && (
               <p className="scraper-dialog__muted">
-                A Chrome window will open. Log in, then leave it alone until the scrape finishes.
+                <Spinner size={12} /> Checking for the CoopJobs extension…
               </p>
+            )}
+
+            {(extension === "missing" || extension === "outdated") && (
+              <ExtensionGate variant={extension} browser={browser} onRecheck={recheckExtension} />
+            )}
+
+            {!(extension === "missing" && browser === "other") && (
+              <>
+                <button
+                  type="button"
+                  className="scraper-dialog__primary"
+                  onClick={handleStart}
+                  disabled={jobCount > 0 || extension !== "ready"}
+                  aria-describedby={jobCount > 0 ? "scraper-start-hint" : undefined}
+                >
+                  Start scrape
+                </button>
+                {jobCount > 0 ? (
+                  <div className="scraper-dialog__callout" role="note" id="scraper-start-hint">
+                    <span className="scraper-dialog__callout-icon" aria-hidden="true">
+                      ⚠
+                    </span>
+                    <span>
+                      <strong>Can't start a new scrape yet.</strong> There are already {fmt(jobCount)}{" "}
+                      jobs in the database and a scrape needs an empty one. Delete all jobs first
+                      (slider above), then start again.
+                    </span>
+                  </div>
+                ) : extension === "ready" ? (
+                  <p className="scraper-dialog__muted">
+                    A Chrome window will open. Log in, then leave it alone until the scrape finishes.
+                  </p>
+                ) : null}
+              </>
             )}
 
             {state === "completed" && (

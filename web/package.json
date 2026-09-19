@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "package:extension": "node scripts/packageExtension.mjs"
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "4.3.4",
+    "archiver": "^8.0.0",
     "better-sqlite3": "13.0.3",
     "vite": "5.4.11",
     "vitest": "3.2.7"

@@ -257,3 +257,14 @@ export async function importDatabase(file) {
   const buffer = await file.arrayBuffer();
   await dbClient.importDbFile(new Uint8Array(buffer));
 }
+
+/** Downloads the extension's recorded debug snapshots (evidence captured for
+ * failed cards / anomalies, plan §4 item 35) as one JSON file, for attaching
+ * to a bug report. Resolves with an empty bundle if the extension has none
+ * or doesn't answer in time -- see extensionBridge.js's getDebugSnapshots(). */
+export async function downloadDebugBundle() {
+  const snapshots = await getExtensionBridge().getDebugSnapshots();
+  const payload = { exported_at: new Date().toISOString(), snapshots };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  downloadBlob(blob, "coopjobs-debug.json");
+}
