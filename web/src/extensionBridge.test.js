@@ -129,7 +129,7 @@ describe("createExtensionBridge outbox handling", () => {
 
   test("a db error is reported back as an ack error string, not thrown", async () => {
     const win = makeFakeWindow();
-    const db = makeFakeDb({ insertError: new Error("disk full") });
+    const db = makeFakeDb({ insertError: Object.assign(new Error("disk full"), { name: "SQLite3Error" }) });
     const bridge = createExtensionBridge({ win, db });
     bridge.subscribe(() => {});
 
@@ -143,6 +143,22 @@ describe("createExtensionBridge outbox handling", () => {
     const ack = win.posted.find((m) => m.data.type === "ack").data;
     expect(ack.inserted).toBe(0);
     expect(ack.error).toBe("disk full");
+  });
+
+  test("a job is not acked when the database cannot be opened, so it stays queued", async () => {
+    const win = makeFakeWindow();
+    const db = makeFakeDb({ insertError: new Error("Access Handles cannot be created") });
+    const bridge = createExtensionBridge({ win, db });
+    bridge.subscribe(() => {});
+
+    win.dispatch({
+      source: "coopjobs-ext",
+      type: "status",
+      status: { state: "scraping", outbox: [{ seq: 0, job: { job_number: "J1" } }] },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(win.posted.some((m) => m.data.type === "ack")).toBe(false);
   });
 
   test("status listeners receive the status without the outbox field", async () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { devLogStatus } from "../devLog.js";
 import {
   cancelScraper,
   checkExtension,
@@ -51,6 +52,7 @@ export function useScraper({ onFinished } = {}) {
   // Every snapshot goes through here, so the running -> finished transition is
   // detected exactly once no matter where the snapshot came from.
   const applyStatus = useCallback((data) => {
+    devLogStatus(data);
     // Snapshots can arrive out of order: a start/cancel response is built
     // before a subscription message that overtakes it. `version` is
     // monotonic, so an older snapshot is dropped whole -- state included. An
@@ -81,6 +83,9 @@ export function useScraper({ onFinished } = {}) {
     try {
       applyStatus(await refreshScraperStatus(statusRef.current));
     } catch (err) {
+      // Still show the dialog (and the install steps) when the database
+      // can't be read, instead of "Loading status…" forever.
+      if (!statusRef.current) applyStatus({ state: "idle" });
       setError(err);
     }
   }, [applyStatus]);
@@ -96,11 +101,15 @@ export function useScraper({ onFinished } = {}) {
     const unsubscribeConnection = bridge.onConnectionChange(setConnection);
     setConnection(bridge.getConnectionState());
     bridge.requestStatus();
+    // The database facts don't depend on the extension: show them (as idle)
+    // at once, so a missing or silent extension never leaves the dialog stuck
+    // on "Loading status…". A snapshot from the extension overrides this.
+    loadStatus();
     return () => {
       unsubscribeStatus();
       unsubscribeConnection();
     };
-  }, [applyStatus]);
+  }, [applyStatus, loadStatus]);
 
   const checkExtensionInstalled = useCallback(async () => {
     setExtension("checking");

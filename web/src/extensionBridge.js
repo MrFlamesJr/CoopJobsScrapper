@@ -74,7 +74,15 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
       const inserted = await db.insertJobs([entry.job]);
       result = { inserted, error: "" };
     } catch (exc) {
-      result = { inserted: 0, error: (exc && exc.message) || String(exc) };
+      // Only a real SQLite error means "this job can't be saved". If the
+      // database couldn't even be opened (locked by another tab, worker
+      // crashed), don't ack: the job stays in the extension's outbox for a
+      // tab that can save it, instead of being dropped.
+      if (!exc || exc.name !== "SQLite3Error") {
+        inFlightSeqs.delete(seq);
+        return;
+      }
+      result = { inserted: 0, error: exc.message || String(exc) };
     }
     inFlightSeqs.delete(seq);
     ackedSeqs.set(seq, result);

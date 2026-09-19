@@ -52,13 +52,52 @@ function openDb() {
   queries.initDb(handle, schemaSql);
 }
 
+// OPFS access handles are exclusive: only one worker (one tab) can hold the
+// database file. The lock is held for this worker's whole life and released
+// by the browser when the tab closes or the worker is terminated.
+const LOCK_WAIT_MS = 5000;
+
+function acquireDbLock() {
+  if (!navigator.locks) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    navigator.locks
+      .request("coopjobs-db", { signal: AbortSignal.timeout(LOCK_WAIT_MS) }, () => {
+        resolve();
+        return new Promise(() => {}); // hold until the worker goes away
+      })
+      .catch(() =>
+        reject(new Error("CoopJobs is already open in another tab. Close the other tab, then reload this one."))
+      );
+  });
+}
+
+// Handles from a worker that was just terminated can take a moment to be
+// released, so a failed install is retried briefly before giving up.
+async function installPoolWithRetry() {
+  let lastError;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      return await sqlite3.installOpfsSAHPoolVfs({ name: "coopjobs-sahpool" });
+    } catch (err) {
+      lastError = err;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+  throw lastError;
+}
+
 async function ensureReady() {
   if (readyPromise) return readyPromise;
   readyPromise = (async () => {
+    await acquireDbLock();
     sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: (msg) => console.error(msg) });
-    poolUtil = await sqlite3.installOpfsSAHPoolVfs({ name: "coopjobs-sahpool" });
+    poolUtil = await installPoolWithRetry();
     openDb();
   })();
+  // A failed open must not be cached forever: the next call tries again.
+  readyPromise.catch(() => {
+    readyPromise = null;
+  });
   return readyPromise;
 }
 
@@ -119,7 +158,7 @@ self.onmessage = async (event) => {
   } catch (error) {
     self.postMessage({
       id,
-      error: { message: (error && error.message) || String(error), stack: error && error.stack },
+      error: { name: error && error.name, message: (error && error.message) || String(error), stack: error && error.stack },
     });
   }
 };

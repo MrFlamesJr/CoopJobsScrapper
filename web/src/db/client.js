@@ -17,6 +17,7 @@ function getWorker() {
     if (error) {
       const err = new Error(error.message || "Database worker error");
       if (error.stack) err.stack = error.stack;
+      if (error.name) err.name = error.name;
       entry.reject(err);
     } else {
       entry.resolve(result);
@@ -30,6 +31,15 @@ function getWorker() {
     pending.clear();
   };
   return worker;
+}
+
+// A dev hot-reload re-runs this module; stop the old worker so it releases
+// the database file instead of blocking the new one.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    worker?.terminate();
+    worker = null;
+  });
 }
 
 function call(method, args = [], transfer = []) {
