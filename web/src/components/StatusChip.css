@@ -100,7 +100,7 @@
   white-space: nowrap;
 }
 
-/* "Don't touch the Chrome window" while scraping, and the incomplete-run
+/* "Don't click in the browser window" while scraping, and the incomplete-run
    warning once it has ended. */
 .status-chip__sub--warn {
   color: var(--tone-tomorrow-fg);

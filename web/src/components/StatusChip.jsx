@@ -5,7 +5,7 @@ import "./StatusChip.css";
 
 // The most important message while a scrape runs, kept visible even with the
 // dialog closed.
-const HANDS_OFF = "Don't touch the Chrome window";
+const HANDS_OFF = "Don't click in the browser window";
 
 /** Headline per way a run ended early. */
 const INCOMPLETE_MAIN = {
@@ -38,7 +38,7 @@ function describe(status) {
         tone: "running",
         spinner: "warn",
         main: "Waiting for you to log in",
-        sub: "In the Chrome window",
+        sub: "In the browser window",
       };
     case "scraping":
       return {
@@ -53,7 +53,7 @@ function describe(status) {
         tone: "running",
         spinner: "warn",
         main: "Aborting scrape…",
-        sub: "Closing the Chrome window",
+        sub: "Closing the browser window",
       };
     default:
       break;

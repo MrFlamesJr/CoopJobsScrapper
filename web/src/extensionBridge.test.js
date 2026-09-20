@@ -207,4 +207,23 @@ describe("createExtensionBridge detection", () => {
       vi.useRealTimers();
     }
   });
+
+  test("retries the ping within the same timeout window, so a bridge injected just after install is still found", async () => {
+    vi.useFakeTimers();
+    try {
+      const win = makeFakeWindow();
+      const bridge = createExtensionBridge({ win, db: makeFakeDb() });
+      const detectPromise = bridge.detect();
+
+      // No bridge answers the first ping (e.g. it's still being injected).
+      vi.advanceTimersByTime(300);
+      expect(win.posted.filter((m) => m.data.type === "ping")).toHaveLength(2);
+
+      // It answers a retry, well before the overall ~1s timeout.
+      win.dispatch({ source: "coopjobs-ext", type: "pong", extensionVersion: "1.2.3", protocolVersion: 1 });
+      await expect(detectPromise).resolves.toEqual({ installed: true, outdated: false, extensionVersion: "1.2.3" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

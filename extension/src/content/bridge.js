@@ -11,57 +11,72 @@
 // still work even if the service worker is asleep (connecting to it will
 // wake it, but the ping itself doesn't need to).
 
-const PROTOCOL_VERSION = 1;
+// background/index.js also injects this same built file (via
+// chrome.scripting.executeScript) into tabs that were already open when the
+// extension is installed/updated/started, since the declared content_scripts
+// entry below only runs on a tab's own future navigations. A tab can end up
+// with both the declared copy and an injected copy running; the second one
+// to load must be a no-op; otherwise two sets of listeners would both answer
+// the same ping and open a second port.
+if (!window.__coopjobsBridgeLoaded) {
+  window.__coopjobsBridgeLoaded = true;
 
-let port = null;
-
-function extensionVersion() {
-  try {
-    return chrome.runtime.getManifest().version;
-  } catch {
-    return "unknown";
-  }
+  installBridge();
 }
 
-function postToApp(message) {
-  window.postMessage({ source: "coopjobs-ext", ...message }, window.location.origin);
-}
+function installBridge() {
+  const PROTOCOL_VERSION = 1;
 
-function ensurePort() {
-  if (port) return port;
-  try {
-    port = chrome.runtime.connect({ name: "coopjobs-bridge" });
-  } catch (exc) {
-    console.warn("[CoopJobs] could not connect to the extension:", exc);
-    return null;
+  let port = null;
+
+  function extensionVersion() {
+    try {
+      return chrome.runtime.getManifest().version;
+    } catch {
+      return "unknown";
+    }
   }
-  port.onMessage.addListener((message) => postToApp(message));
-  port.onDisconnect.addListener(() => {
-    port = null;
+
+  function postToApp(message) {
+    window.postMessage({ source: "coopjobs-ext", ...message }, window.location.origin);
+  }
+
+  function ensurePort() {
+    if (port) return port;
+    try {
+      port = chrome.runtime.connect({ name: "coopjobs-bridge" });
+    } catch (exc) {
+      console.warn("[CoopJobs] could not connect to the extension:", exc);
+      return null;
+    }
+    port.onMessage.addListener((message) => postToApp(message));
+    port.onDisconnect.addListener(() => {
+      port = null;
+    });
+    return port;
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return; // only the page itself, never an iframe/other tab
+    if (event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (!data || typeof data !== "object" || data.source !== "coopjobs-app") return;
+
+    if (data.type === "ping") {
+      postToApp({ type: "pong", extensionVersion: extensionVersion(), protocolVersion: PROTOCOL_VERSION });
+      return;
+    }
+
+    const p = ensurePort();
+    if (!p) return;
+    try {
+      p.postMessage(data);
+    } catch (exc) {
+      console.warn("[CoopJobs] could not relay a message to the extension:", exc);
+    }
   });
-  return port;
+
+  // Connect eagerly so the service worker can push status the moment it has
+  // something to say, without waiting for the app to send anything first.
+  ensurePort();
 }
-
-window.addEventListener("message", (event) => {
-  if (event.source !== window) return; // only the page itself, never an iframe/other tab
-  if (event.origin !== window.location.origin) return;
-  const data = event.data;
-  if (!data || typeof data !== "object" || data.source !== "coopjobs-app") return;
-
-  if (data.type === "ping") {
-    postToApp({ type: "pong", extensionVersion: extensionVersion(), protocolVersion: PROTOCOL_VERSION });
-    return;
-  }
-
-  const p = ensurePort();
-  if (!p) return;
-  try {
-    p.postMessage(data);
-  } catch (exc) {
-    console.warn("[CoopJobs] could not relay a message to the extension:", exc);
-  }
-});
-
-// Connect eagerly so the service worker can push status the moment it has
-// something to say, without waiting for the app to send anything first.
-ensurePort();

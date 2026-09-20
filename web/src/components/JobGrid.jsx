@@ -73,8 +73,8 @@ export default function JobGrid({
             <h2>{scraping ? "Scraping the first page…" : "Waiting for the first jobs…"}</h2>
             <p>
               {scraping
-                ? "Jobs appear here as they're scraped. Leave the Chrome window alone."
-                : "Log in in the Chrome window if you haven't yet."}
+                ? "Jobs appear here as they're scraped. Leave the browser window alone."
+                : "Log in in the browser window if you haven't yet."}
             </p>
           </div>
         </div>

@@ -235,8 +235,8 @@
   padding-top: 0.15rem;
 }
 
-/* "Don't touch the scraper's Chrome window" while scraping. Reuses the
-   deadline chip's amber tone. */
+/* "Don't click around in the scraper's browser window" while scraping.
+   Reuses the deadline chip's amber tone. */
 .scraper-dialog__callout {
   display: flex;
   align-items: flex-start;
@@ -256,7 +256,7 @@
   line-height: 1.3;
 }
 
-/* "A Chrome window is opening…" — informational, not a warning, so it gets
+/* "A browser window is opening…" — informational, not a warning, so it gets
    the accent tone instead of the callout's default amber. */
 .scraper-dialog__callout--info {
   background: var(--accent-soft);

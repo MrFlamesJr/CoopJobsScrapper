@@ -20,7 +20,7 @@ const RUNNING_STATES = new Set(["starting", "waiting_for_login", "scraping", "ca
 // Shown as the hover tooltip and read out as the button's description, so the
 // two can't drift apart.
 const STOP_TIP =
-  "Closes the Chrome window and keeps the jobs saved so far. The scrape can't be resumed afterward.";
+  "Closes the browser window and keeps the jobs saved so far. The scrape can't be resumed afterward.";
 
 function fmt(n) {
   return (n ?? 0).toLocaleString();
@@ -628,7 +628,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                   </div>
                 ) : extension === "ready" ? (
                   <p className="scraper-dialog__muted">
-                    A Chrome window will open. Log in, then leave it alone until the scrape finishes.
+                    A browser window will open. Log in, then leave it alone until the scrape finishes.
                   </p>
                 ) : null}
               </>
@@ -656,7 +656,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                   ℹ
                 </span>
                 <span>
-                  <strong>A Chrome window is opening.</strong> Log in there, then leave it alone until
+                  <strong>A browser window is opening.</strong> Log in there, then leave it alone until
                   the scrape finishes.
                 </span>
               </div>
@@ -667,9 +667,9 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                   ⚠
                 </span>
                 <span>
-                  <strong>Don't touch the scraper's Chrome window.</strong> Clicking, scrolling or
-                  resizing it can mix up job data. You can keep using this page, or minimize the
-                  Chrome window.
+                  <strong>Don't click around in the scraper's browser window.</strong> It can cause
+                  errors or skipped jobs. You can keep using this page, and it's fine to resize or
+                  minimize that window.
                 </span>
               </div>
             )}
@@ -687,8 +687,8 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                       {step.key === "login" && stepState === "active" && (
                         <span className="scraper-dialog__step-hint">
                           {" "}
-                          Log in to the portal in the Chrome window. Once you're in, don't click or
-                          scroll in it. Scraping starts automatically.
+                          Log in to the portal in the browser window. Once you're in, don't click
+                          around in it. Scraping starts automatically.
                         </span>
                       )}
                       {step.key === "counting" && stepState !== "pending" && (
@@ -761,7 +761,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
             {cancelling ? (
               <p className="scraper-dialog__aborting">
                 <Spinner size={14} tone="warn" />
-                Aborting… closing the Chrome window
+                Aborting… closing the browser window
               </p>
             ) : !confirmingStop ? (
               <>
@@ -796,7 +796,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
             ) : (
               <div className="scraper-dialog__stop-confirm">
                 <p className="scraper-dialog__stop-confirm-text">
-                  <strong>Abort this scrape?</strong> The Chrome window closes and the{" "}
+                  <strong>Abort this scrape?</strong> The browser window closes and the{" "}
                   {fmt(status.jobs_saved)} jobs saved so far are kept, but a scrape can't be resumed.
                   To get the rest you'll have to delete all jobs and start again from page 1.
                 </p>

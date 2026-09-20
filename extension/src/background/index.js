@@ -113,6 +113,55 @@ chrome.tabs?.onRemoved.addListener((tabId) => {
   if (tabId === portalTabId) handlePortalTabGone();
 });
 
+// -- Bridge injection into already-open tabs ---------------------------------
+
+// A tab that was already open when the extension is installed/updated/
+// started never gets the declared content_scripts entry (that only runs on
+// a tab's own future navigations), so web/src/extensionBridge.js's ping
+// would go unanswered until the user reloads the page. Inject the built
+// bridge file into every matching tab ourselves, on both onInstalled (covers
+// install/update/reload from chrome://extensions) and onStartup (covers the
+// browser itself starting with the tab already restored).
+async function injectBridgeIntoExistingTabs() {
+  if (!chrome.scripting?.executeScript) return;
+  // Read the match patterns from the bridge's own content_scripts entry
+  // (rather than hardcoding them here) so this can never drift from
+  // manifest.json, and so it only ever touches the bridge's own tabs -- never
+  // the portal tab or anything else.
+  const manifest = chrome.runtime.getManifest();
+  const bridgeEntry = (manifest.content_scripts || []).find((entry) =>
+    (entry.js || []).includes("content/bridge.js")
+  );
+  const matches = bridgeEntry?.matches;
+  if (!matches || matches.length === 0) return;
+
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: matches });
+  } catch (exc) {
+    console.warn("[CoopJobs] could not query tabs to inject the bridge into:", exc);
+    return;
+  }
+
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/bridge.js"] });
+    } catch (exc) {
+      // A discarded tab, or a URL the extension isn't allowed to script
+      // (e.g. chrome://) can each fail here; never let one tab stop the rest.
+      console.warn("[CoopJobs] could not inject the bridge into tab", tab.id, exc);
+    }
+  }
+}
+
+chrome.runtime?.onInstalled.addListener(() => {
+  injectBridgeIntoExistingTabs();
+});
+chrome.runtime?.onStartup.addListener(() => {
+  injectBridgeIntoExistingTabs();
+});
+
 // -- chrome.runtime.connect: two kinds of long-lived ports -------------------
 
 chrome.runtime?.onConnect.addListener((port) => {

@@ -26,6 +26,15 @@ import { MIN_EXTENSION_VERSION, compareVersions } from "./extensionInfo.js";
 
 const PROTOCOL_VERSION = 1;
 const PING_TIMEOUT_MS = 1000;
+// A tab that was already open when the extension is installed/reloaded gets
+// its bridge content script injected by extension/src/background/index.js
+// asynchronously, shortly after install -- it may not be ready for the very
+// first ping. Re-send the ping a couple more times within the same overall
+// PING_TIMEOUT_MS window (rather than extending it) so a freshly injected
+// bridge is still picked up without a page reload, while "not installed"
+// still takes the same ~1s it always did.
+const PING_RETRY_ATTEMPTS = 3;
+const PING_RETRY_DELAY_MS = 300;
 // Slightly more than the service worker's 15s heartbeat (background/index.js
 // HEARTBEAT_MS), so one missed beat doesn't flip the UI to "reconnecting".
 const HEARTBEAT_GRACE_MS = 20_000;
@@ -130,11 +139,12 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
         return;
       }
       let settled = false;
+      const timers = [];
       const finish = (result) => {
         if (settled) return;
         settled = true;
         win.removeEventListener("message", onPong);
-        clearTimeout(timer);
+        for (const timer of timers) clearTimeout(timer);
         resolve(result);
       };
       function onPong(event) {
@@ -152,9 +162,14 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
           extensionVersion: data.extensionVersion ?? null,
         });
       }
-      const timer = setTimeout(() => finish({ installed: false, outdated: false, extensionVersion: null }), PING_TIMEOUT_MS);
       win.addEventListener("message", onPong);
       post({ type: "ping" });
+      for (let attempt = 1; attempt < PING_RETRY_ATTEMPTS; attempt += 1) {
+        timers.push(setTimeout(() => post({ type: "ping" }), attempt * PING_RETRY_DELAY_MS));
+      }
+      timers.push(
+        setTimeout(() => finish({ installed: false, outdated: false, extensionVersion: null }), PING_TIMEOUT_MS)
+      );
     });
   }
 

@@ -122,6 +122,16 @@ export function useScraper({ onFinished } = {}) {
     checkExtensionInstalled();
   }, [checkExtensionInstalled]);
 
+  // Recheck on window focus too: a tab left open through an extension
+  // install/reload never got its content script until background/index.js's
+  // injection (or the user leaving and coming back) runs, so re-probing when
+  // the tab regains focus catches that without requiring a manual reload.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.addEventListener("focus", checkExtensionInstalled);
+    return () => window.removeEventListener("focus", checkExtensionInstalled);
+  }, [checkExtensionInstalled]);
+
   const start = useCallback(async () => {
     setError(null);
     const data = await startScraper();

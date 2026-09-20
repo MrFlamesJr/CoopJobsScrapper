@@ -18,7 +18,7 @@ function liveLine(status) {
     const saved = (status.jobs_saved ?? 0).toLocaleString();
     return `Scraping live · ${saved} jobs so far · ${pageLabel(status)}`;
   }
-  if (state === "waiting_for_login") return "Waiting for you to log in in the Chrome window…";
+  if (state === "waiting_for_login") return "Waiting for you to log in to the portal in the browser window…";
   if (state === "cancelling") return "Aborting the scrape…";
   return "Starting the scraper…";
 }
