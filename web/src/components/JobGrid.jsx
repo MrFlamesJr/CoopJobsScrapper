@@ -74,7 +74,7 @@ export default function JobGrid({
             <p>
               {scraping
                 ? "Jobs appear here as they're scraped. Leave the browser window alone."
-                : "Log in in the browser window if you haven't yet."}
+                : "Log in to the portal in the browser window if you haven't yet."}
             </p>
           </div>
         </div>
