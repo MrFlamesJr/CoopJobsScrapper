@@ -15,6 +15,25 @@ export const EDGE_STORE_URL = "https://microsoftedge.microsoft.com/addons/detail
 // zips extension/dist into exactly this file under web/public/.
 export const EXTENSION_ZIP_URL = "coopjobs-extension.zip";
 
+// The oldest extension build this site works with. Raise it (to the new
+// extension/manifest.json "version") whenever a release changes how the two
+// talk to each other, or fixes something scraping depends on: an older
+// installed extension is then reported as outdated and the Scraper dialog
+// shows the update panel instead of letting a scrape start.
+export const MIN_EXTENSION_VERSION = "0.1.0";
+
+/** -1 / 0 / 1, comparing dotted numeric versions ("0.2.0" > "0.1.9"). */
+export function compareVersions(a, b) {
+  const partsA = String(a || "0").split(".").map(Number);
+  const partsB = String(b || "0").split(".").map(Number);
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i += 1) {
+    const x = partsA[i] || 0;
+    const y = partsB[i] || 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
 /**
  * Chrome vs. Edge vs. anything else, purely to steer the install
  * instructions in ScraperDialog.jsx -- browsing an imported database works
@@ -26,6 +45,9 @@ export function detectBrowser() {
   if (typeof navigator === "undefined") return "other";
   const brands = navigator.userAgentData?.brands || [];
   const ua = navigator.userAgent || "";
+  // Phones and tablets can't install extensions, whatever the brand says.
+  const mobile = navigator.userAgentData?.mobile || /Android|iPhone|iPad|iPod/i.test(ua);
+  if (mobile) return "other";
   const hasBrand = (re) => brands.some((b) => re.test(b.brand));
   if (hasBrand(/Microsoft Edge/i) || ua.includes("Edg/")) return "edge";
   if (hasBrand(/Chromium|Google Chrome/i) || ua.includes("Chrome/")) return "chrome";

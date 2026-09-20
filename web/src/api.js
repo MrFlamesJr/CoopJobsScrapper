@@ -262,6 +262,13 @@ export async function importDatabase(file) {
  * failed cards / anomalies, plan §4 item 35) as one JSON file, for attaching
  * to a bug report. Resolves with an empty bundle if the extension has none
  * or doesn't answer in time -- see extensionBridge.js's getDebugSnapshots(). */
+/** Opens the browser's own extensions page in a new tab, through the
+ * extension -- a web page may not navigate to a chrome:// URL itself. Only
+ * works while an extension is installed to ask (the "update" panel). */
+export function openExtensionsPage(url) {
+  getExtensionBridge().openExtensionsPage(url);
+}
+
 export async function downloadDebugBundle() {
   const snapshots = await getExtensionBridge().getDebugSnapshots();
   const payload = { exported_at: new Date().toISOString(), snapshots };

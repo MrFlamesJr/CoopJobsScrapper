@@ -3,7 +3,7 @@ import Spinner from "./Spinner.jsx";
 import SlideToConfirm from "./SlideToConfirm.jsx";
 import useScrapeRate from "../hooks/useScrapeRate.js";
 import { totalPercent, pagePercent, incompleteRun, runPageLabel } from "../scrapeProgress.js";
-import { downloadDebugBundle } from "../api.js";
+import { downloadDebugBundle, openExtensionsPage } from "../api.js";
 import { EDGE_STORE_URL, EXTENSION_ZIP_URL, detectBrowser } from "../extensionInfo.js";
 import "./ScraperDialog.css";
 
@@ -154,6 +154,27 @@ function PageDonut({ status }) {
   );
 }
 
+const DEVELOPER_MODE_TIP =
+  "Chrome and Edge only allow extensions from their stores. Developer mode is the switch that also lets you load one from a folder. " +
+  "Nothing else about your browsing changes, and you can switch it back off once it's installed. Chrome may nag you about it at startup. " +
+  "Like any extension, it can read the pages it's allowed to — here that's the co-op portal and this site, nothing else. The zip holds all of its code, and you can remove it any time.";
+
+/** A small "i" that shows `tip` on hover/focus, via the app's TooltipLayer. */
+function InfoDot({ tip, label }) {
+  return (
+    <span
+      className="scraper-dialog__info-dot"
+      data-tooltip={tip}
+      data-tooltip-placement="top-start"
+      tabIndex={0}
+      role="note"
+      aria-label={`${label}: ${tip}`}
+    >
+      i
+    </span>
+  );
+}
+
 /** "chrome://extensions" (or "edge://extensions"): a browser-internal URL
     can't be turned into a working link from a web page, so it's shown as
     copyable text instead. */
@@ -183,16 +204,29 @@ function CopyableCode({ text }) {
 
 /** The 4 manual "Load unpacked" steps, shared by the missing/outdated panels
     and by both browsers -- only the internal extensions-page URL differs. */
-function InstallSteps({ browser }) {
+function InstallSteps({ browser, canOpen }) {
   const extensionsUrl = browser === "edge" ? "edge://extensions" : "chrome://extensions";
   return (
     <ol className="scraper-dialog__install-steps">
       <li>Unzip the downloaded file.</li>
       <li>
-        Open <CopyableCode text={extensionsUrl} />
+        Open{" "}
+        {canOpen ? (
+          <button
+            type="button"
+            className="scraper-dialog__copy-code"
+            onClick={() => openExtensionsPage(extensionsUrl)}
+          >
+            <code>{extensionsUrl}</code>
+            <span aria-hidden="true">Open in a new tab</span>
+          </button>
+        ) : (
+          <CopyableCode text={extensionsUrl} />
+        )}
       </li>
       <li>
-        Turn on <strong>Developer mode</strong> (top right).
+        Turn on <strong>Developer mode</strong> (top right){" "}
+        <InfoDot tip={DEVELOPER_MODE_TIP} label="Why Developer mode is needed" />
       </li>
       <li>
         Click <strong>Load unpacked</strong> and select the unzipped folder.
@@ -212,12 +246,14 @@ function ExtensionGate({ variant, browser, onRecheck }) {
       <h3 className="scraper-dialog__install-title">
         {variant === "outdated" ? "Update the extension" : "Step 1 – Install the CoopJobs extension"}
       </h3>
-      <div className="scraper-dialog__callout" role="note">
-        <span className="scraper-dialog__callout-icon" aria-hidden="true">
-          ⚠
-        </span>
-        <span>The scraper only works in Google Chrome and Microsoft Edge on a computer.</span>
-      </div>
+      {browser === "other" && (
+        <div className="scraper-dialog__callout" role="note">
+          <span className="scraper-dialog__callout-icon" aria-hidden="true">
+            ⚠
+          </span>
+          <span>The scraper only works in Google Chrome and Microsoft Edge on a computer.</span>
+        </div>
+      )}
 
       {blocked ? (
         <p className="scraper-dialog__muted">
@@ -247,10 +283,10 @@ function ExtensionGate({ variant, browser, onRecheck }) {
               <a className="scraper-dialog__install-link" href={EXTENSION_ZIP_URL} download>
                 Download extension (.zip)
               </a>
-              <InstallSteps browser={browser} />
+              <InstallSteps browser={browser} canOpen={variant === "outdated"} />
             </details>
           ) : (
-            <InstallSteps browser={browser} />
+            <InstallSteps browser={browser} canOpen={variant === "outdated"} />
           )}
 
           <button type="button" className="scraper-dialog__secondary" onClick={onRecheck}>
@@ -446,8 +482,8 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
       <div className="scraper-dialog__body">
         {!status && <p className="scraper-dialog__muted">Loading status…</p>}
 
-        {status && connection === "reconnecting" && (
-          <p className="scraper-dialog__muted">Reconnecting to the server…</p>
+        {status && connection === "reconnecting" && extension === "ready" && (
+          <p className="scraper-dialog__muted">Lost contact with the extension — reconnecting…</p>
         )}
 
         {status && !running && (

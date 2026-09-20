@@ -27,6 +27,7 @@
 //   -> {type: "cancel"}                                     user clicked "Cancel"
 //   -> {type: "getStatus"}                                   ask for a fresh snapshot
 //   -> {type: "ack", seq, inserted, error}                   one outbox job was (or wasn't) saved
+//   -> {type: "openExtensionsPage"}                         open chrome://extensions in a new tab
 //   -> {type: "getDebugSnapshots"}                           ask for the recorded debug evidence
 //   <- {type: "status", status}                               status snapshot incl. outbox, pushed on every change
 //     and once immediately on connect (status.outbox carries every
@@ -264,6 +265,14 @@ async function handleBridgeMessage(message, port) {
     case "ack":
       runner.ack(message.seq, { inserted: message.inserted, error: message.error });
       break;
+    case "openExtensionsPage": {
+      // A web page can't navigate to chrome://extensions; the extension can.
+      // The page says which one (Edge has its own), but only these two.
+      const allowed = ["chrome://extensions", "edge://extensions"];
+      const url = allowed.includes(message.url) ? message.url : allowed[0];
+      chrome.tabs?.create({ url });
+      break;
+    }
     case "getDebugSnapshots": {
       const snapshots = await readDebugSnapshots();
       try {

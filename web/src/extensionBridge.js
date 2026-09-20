@@ -11,6 +11,7 @@
 //   app -> ext: {source:"coopjobs-app", type:"ack", seq, inserted, error}
 //   ext -> app: {source:"coopjobs-app", type:"status", status}   (status.outbox carries unacked jobs)
 //   ext -> app: {source:"coopjobs-ext", type:"ping"}              heartbeat, every ~15s
+//   app -> ext: {source:"coopjobs-app", type:"openExtensionsPage"}
 //   app -> ext: {source:"coopjobs-app", type:"getDebugSnapshots"}
 //   ext -> app: {source:"coopjobs-ext", type:"debugSnapshots", snapshots}
 //
@@ -20,6 +21,8 @@
 // extensionBridge.test.js.
 
 import { dbClient } from "./db/client.js";
+
+import { MIN_EXTENSION_VERSION, compareVersions } from "./extensionInfo.js";
 
 const PROTOCOL_VERSION = 1;
 const PING_TIMEOUT_MS = 1000;
@@ -141,7 +144,11 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
         if (!data || data.source !== "coopjobs-ext" || data.type !== "pong") return;
         finish({
           installed: true,
-          outdated: (data.protocolVersion ?? 0) < PROTOCOL_VERSION,
+          // Out of date either way: an older protocol, or an extension build
+          // older than the one this site needs.
+          outdated:
+            (data.protocolVersion ?? 0) < PROTOCOL_VERSION ||
+            compareVersions(data.extensionVersion, MIN_EXTENSION_VERSION) < 0,
           extensionVersion: data.extensionVersion ?? null,
         });
       }
@@ -176,6 +183,13 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
   function requestStatus() {
     ensureListening();
     post({ type: "getStatus" });
+  }
+
+  /** Asks the extension to open the browser's extensions page in a new tab.
+   * Only the extension can: chrome:// URLs are off limits to a web page. Does
+   * nothing when no extension is there to ask. */
+  function openExtensionsPage(url) {
+    post({ type: "openExtensionsPage", url });
   }
 
   /** Asks the extension for its recorded debug snapshots (evidence captured
@@ -218,6 +232,7 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
     start,
     cancel,
     requestStatus,
+    openExtensionsPage,
     getDebugSnapshots,
     // exposed for tests only: lets a test push a status message without a
     // real window round trip.

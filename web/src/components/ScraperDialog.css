@@ -575,6 +575,32 @@
   padding: 0.4rem 0.75rem;
 }
 
+.scraper-dialog__info-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 50%;
+  font-size: 0.8rem;
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+  cursor: help;
+  vertical-align: -0.2em;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.scraper-dialog__info-dot:hover,
+.scraper-dialog__info-dot:focus-visible {
+  color: var(--accent, var(--text));
+  border-color: var(--accent, var(--text));
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
 .scraper-dialog__install-steps {
   margin: 0;
   padding-left: 1.2rem;
