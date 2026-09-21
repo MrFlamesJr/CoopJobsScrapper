@@ -6,6 +6,21 @@ import "./JobDetails.css";
 // Simple in-memory cache so re-expanding a card doesn't refetch.
 const jobDetailCache = new Map();
 
+const DESC_WIDTH_KEY = "coopjobs:desc-width";
+const MIN_DESC_WIDTH = 420;
+
+function applyDescWidth(px) {
+  document.documentElement.style.setProperty("--desc-width", `${px}px`);
+}
+
+function saveDescWidth(px) {
+  try {
+    localStorage.setItem(DESC_WIDTH_KEY, String(px));
+  } catch {
+    // Storage can be unavailable (private mode); the width just won't persist.
+  }
+}
+
 // Exported so a card can prefetch its details before the expand animation
 // starts: the new state then already has its content, and the morph doesn't
 // jump when "Loading…" is replaced.
@@ -62,6 +77,9 @@ export default function JobDetails({ jobId, onClose, header }) {
   const closeButtonRef = useRef(null);
   const rootRef = useRef(null);
   const headerRef = useRef(null);
+  const descRef = useRef(null);
+  const descDragRef = useRef(false);
+  const descBoundsRef = useRef(null);
 
   useEffect(() => {
     if (jobDetailCache.has(jobId)) {
@@ -86,6 +104,20 @@ export default function JobDetails({ jobId, onClose, header }) {
     closeButtonRef.current?.focus();
   }, []);
 
+  // Restore the saved width once on mount.
+  useEffect(() => {
+    let saved = null;
+    try {
+      saved = localStorage.getItem(DESC_WIDTH_KEY);
+    } catch {
+      // Storage can be unavailable; fall back to the default width.
+    }
+    const px = Number(saved);
+    if (px > 0) {
+      applyDescWidth(px);
+    }
+  }, []);
+
   // With header content the panel pins this row (see JobPanel.css), so the
   // rail below has to stick under it. The row wraps on a narrow panel, so its
   // height is measured; it's published on this element rather than `:root`
@@ -104,6 +136,42 @@ export default function JobDetails({ jobId, onClose, header }) {
       root.style.removeProperty("--details-header-h");
     };
   }, [hasHeader]);
+
+  function clampDescWidth(px, bounds) {
+    return Math.round(Math.max(MIN_DESC_WIDTH, Math.min(px, bounds.max)));
+  }
+
+  function handleDescResizeStart(e) {
+    e.preventDefault();
+    descDragRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    document.body.style.userSelect = "none";
+    const rect = descRef.current?.getBoundingClientRect();
+    const parentWidth = descRef.current?.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
+    descBoundsRef.current = { left: rect ? rect.left : 0, max: parentWidth };
+  }
+
+  function handleDescResizeMove(e) {
+    if (!descDragRef.current) return;
+    applyDescWidth(clampDescWidth(e.clientX - descBoundsRef.current.left, descBoundsRef.current));
+  }
+
+  function handleDescResizeEnd(e) {
+    if (!descDragRef.current) return;
+    descDragRef.current = false;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    document.body.style.userSelect = "";
+    saveDescWidth(clampDescWidth(e.clientX - descBoundsRef.current.left, descBoundsRef.current));
+  }
+
+  function handleDescResizeReset() {
+    document.documentElement.style.removeProperty("--desc-width");
+    try {
+      localStorage.removeItem(DESC_WIDTH_KEY);
+    } catch {
+      // Storage can be unavailable; silently ignore.
+    }
+  }
 
   const stopToggle = (e) => e.stopPropagation();
 
@@ -188,11 +256,23 @@ export default function JobDetails({ jobId, onClose, header }) {
           </aside>
 
           {job.description && (
-            <section className="job-details__section job-details__description">
+            <section className="job-details__section job-details__description" ref={descRef}>
               <h4>Description</h4>
               {paragraphs(job.description).map((p, i) => (
                 <DescriptionParagraph key={i} text={p} />
               ))}
+              <div
+                className="job-details__resizer"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize description"
+                title="Drag to resize · double-click to reset"
+                onPointerDown={handleDescResizeStart}
+                onPointerMove={handleDescResizeMove}
+                onPointerUp={handleDescResizeEnd}
+                onPointerCancel={handleDescResizeEnd}
+                onDoubleClick={handleDescResizeReset}
+              />
             </section>
           )}
         </div>

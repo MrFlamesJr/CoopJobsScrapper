@@ -4,17 +4,22 @@ import TopBar from "./components/TopBar.jsx";
 import FilterChips from "./components/FilterChips.jsx";
 import JobGrid from "./components/JobGrid.jsx";
 import ScraperDialog from "./components/ScraperDialog.jsx";
-import FavoritesDrawer from "./components/FavoritesDrawer.jsx";
+import AboutModal from "./components/AboutModal.jsx";
+import BackToTop from "./components/BackToTop.jsx";
 import { clearJobDetailCache } from "./components/JobDetails.jsx";
 import { useJobs } from "./hooks/useJobs.js";
 import { useFacets } from "./hooks/useFacets.js";
-import { useFavorites } from "./hooks/useFavorites.js";
+import { useRatings } from "./hooks/useRatings.js";
 import { useScraper } from "./hooks/useScraper.js";
 import { HighlightContext } from "./highlight.jsx";
-import { runPanelTransition } from "./viewTransition.js";
+import { readUrlState, writeUrlState } from "./urlState.js";
 import "./App.css";
 
 const EMPTY_FILTERS = {};
+
+// The sort stack, most significant first. One row is always kept, so the
+// default is the single sort the old <select> started on.
+const DEFAULT_SORTS = [{ field: "employer", dir: "asc" }];
 
 // Jobs are saved one by one during a scrape. Refetch at most this often, with
 // a trailing call, so a burst of jobs is a single refetch.
@@ -43,17 +48,20 @@ function saveHighlightOn(on) {
 }
 
 export default function App() {
-  const [q, setQ] = useState("");
-  const [sort, setSort] = useState("employer");
-  const [deadlineMode, setDeadlineMode] = useState("open");
-  const [facetFilters, setFacetFilters] = useState(EMPTY_FILTERS);
+  // Read once on the first render, so all five pieces come from the same URL.
+  const [initialUrlState] = useState(readUrlState);
+  const [q, setQ] = useState(initialUrlState.q);
+  const [sorts, setSorts] = useState(initialUrlState.sorts);
+  const [ratingFilter, setRatingFilter] = useState(initialUrlState.ratingFilter);
+  const [deadlineMode, setDeadlineMode] = useState(initialUrlState.deadlineMode);
+  const [facetFilters, setFacetFilters] = useState(initialUrlState.facetFilters);
   const [highlightOn, setHighlightOn] = useState(loadHighlightOn);
 
   // Any number of cards can be expanded at once.
   const [expandedIds, setExpandedIds] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [scraperOpen, setScraperOpen] = useState(false);
-  const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   // Set together with refreshKey: true means "this refetch came from the live
   // scrape stream", so the grid swaps quietly instead of dimming.
@@ -62,17 +70,36 @@ export default function App() {
   const filterState = useMemo(
     () => ({
       q,
-      sort,
+      sorts,
+      rating: ratingFilter === "all" ? null : ratingFilter,
       deadline: deadlineMode === "all" ? "" : deadlineMode,
       filters: facetFilters,
     }),
-    [q, sort, deadlineMode, facetFilters],
+    [q, sorts, ratingFilter, deadlineMode, facetFilters],
   );
+
+  // Update URL when filter state changes
+  useEffect(() => {
+    writeUrlState({
+      q,
+      sorts,
+      ratingFilter,
+      deadlineMode,
+      facetFilters,
+    });
+  }, [q, sorts, ratingFilter, deadlineMode, facetFilters]);
 
   const { jobs, total, loading, error, appliedQ } = useJobs(filterState, refreshKey, silentRefresh);
   const { facets } = useFacets(refreshKey);
-  // Refetches on refreshKey too, so re-linked and orphaned favorites update.
-  const favorites = useFavorites(refreshKey);
+  // Refetches on refreshKey too, so re-linked and orphaned ratings update.
+  const ratings = useRatings(refreshKey);
+
+  // The top bar's counts come straight from the optimistic ratings state, so
+  // a thumb click shows up at once.
+  const stats = useMemo(
+    () => ({ liked: ratings.likedCount, disliked: ratings.dislikedCount }),
+    [ratings.likedCount, ratings.dislikedCount],
+  );
 
   // Lowercase search words currently highlighted, or empty when the toggle is
   // off. `appliedQ` (not the raw, still-debouncing `q`) is what the visible
@@ -104,7 +131,9 @@ export default function App() {
 
   // "Delete all jobs" empties the grid, so expanded cards go with it. Cached
   // details go too: SQLite hands the old row ids to the next scrape's jobs.
-  const handleJobsDeleted = useCallback(() => {
+  // Opening a database swaps the whole row set the same way, so it uses this
+  // as well rather than a plain refresh.
+  const handleJobsReplaced = useCallback(() => {
     clearJobDetailCache();
     setExpandedIds([]);
     bumpRefresh();
@@ -140,6 +169,17 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [scraperRunning, jobsSaved, bumpRefresh]);
 
+  // With a rating filter on, the job that was just liked/disliked may no
+  // longer belong in the grid. Refetch once the write has landed (quietly, so
+  // the grid does not dim).
+  const handleRate = useCallback(
+    (job, rating) => {
+      const done = ratings.setRating(job, rating);
+      if (ratingFilter !== "all") Promise.resolve(done).then(() => bumpRefresh(true));
+    },
+    [ratings, ratingFilter, bumpRefresh],
+  );
+
   const handleFacetToggle = useCallback((field, value) => {
     setFacetFilters((prev) => {
       const current = prev[field] || [];
@@ -160,6 +200,7 @@ export default function App() {
     setQ("");
     setFacetFilters({});
     setDeadlineMode("open");
+    setRatingFilter("all");
   }, []);
 
   const activeFilterCount = useMemo(
@@ -167,30 +208,23 @@ export default function App() {
     [facetFilters],
   );
 
-  // The state flip, wrapped in a View Transition so the panel zooms out of
-  // this card (and back into it) while the rest of the grid slides — see
-  // viewTransition.js. Hovering or focusing the card already prefetched the
-  // details, so there is nothing to wait for.
+  // Opening and closing is now an instant state flip with no animation.
+  // Hovering or focusing the card already prefetched the details, so there is
+  // nothing to wait for.
   const toggleExpand = useCallback((id) => {
-    runPanelTransition({
-      morphId: id,
-      update: () =>
-        setExpandedIds((current) =>
-          current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
-        ),
-    });
+    setExpandedIds((current) =>
+      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
+    );
   }, []);
 
-  // With several panels closing at once there is no single card to zoom back
-  // into, so they just slide away.
-  const collapseAll = useCallback(() => {
-    runPanelTransition({
-      morphId: expandedIds.length === 1 ? expandedIds[0] : null,
-      update: () => setExpandedIds([]),
-    });
-  }, [expandedIds]);
+  const collapseAll = useCallback(() => setExpandedIds([]), []);
 
   const openScraper = useCallback(() => setScraperOpen(true), []);
+
+  // Shared between the sidebar's status chip and the Data dialog, so the
+  // dialog can read the chip's on-screen position and animate outward from
+  // it (see ScraperDialog's open effect).
+  const statusChipRef = useRef(null);
 
   return (
     <HighlightContext.Provider value={words}>
@@ -210,8 +244,10 @@ export default function App() {
         <Sidebar
           q={q}
           onQChange={setQ}
-          sort={sort}
-          onSortChange={setSort}
+          sorts={sorts}
+          onSortsChange={setSorts}
+          ratingFilter={ratingFilter}
+          onRatingFilterChange={setRatingFilter}
           deadlineMode={deadlineMode}
           onDeadlineModeChange={setDeadlineMode}
           facets={facets}
@@ -221,25 +257,24 @@ export default function App() {
           onClearFilters={clearFacetFilters}
           status={scraper.status}
           onOpenScraper={openScraper}
+          statusChipRef={statusChipRef}
           isOpen={sidebarOpen}
           onCloseMobile={() => setSidebarOpen(false)}
           highlightOn={highlightOn}
           onToggleHighlight={toggleHighlight}
+          onOpenAbout={() => setAboutOpen(true)}
         />
 
         <main className="app-main">
           <TopBar
             shown={jobs.length}
             total={total}
+            stats={stats}
             scraperRunning={scraperRunning}
             scraperStatus={scraper.status}
             onOpenScraper={openScraper}
             expandedCount={expandedIds.length}
             onCollapseAll={collapseAll}
-            favoritesCount={favorites.favorites.length}
-            pulseKey={favorites.pulseKey}
-            onOpenFavorites={() => setFavoritesOpen(true)}
-            onDatabaseImported={handleScrapeFinished}
           />
           <FilterChips
             filters={facetFilters}
@@ -249,6 +284,8 @@ export default function App() {
             onClearSearch={() => setQ("")}
             hideClosed={deadlineMode === "open"}
             onShowClosed={() => setDeadlineMode("all")}
+            ratingFilter={ratingFilter}
+            onClearRatingFilter={() => setRatingFilter("all")}
           />
           <JobGrid
             jobs={jobs}
@@ -259,26 +296,25 @@ export default function App() {
             onToggleExpand={toggleExpand}
             onOpenScraper={openScraper}
             onClearFilters={clearAll}
-            savedJobNumbers={favorites.savedSet}
-            onToggleFavorite={favorites.toggle}
+            ratingMap={ratings.ratingMap}
+            onRate={handleRate}
             scraperStatus={scraper.status}
             scraperRunning={scraperRunning}
           />
         </main>
 
-        <FavoritesDrawer
-          open={favoritesOpen}
-          onClose={() => setFavoritesOpen(false)}
-          favorites={favorites.favorites}
-          onToggle={favorites.toggle}
-        />
+        <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
 
         <ScraperDialog
           open={scraperOpen}
           onClose={() => setScraperOpen(false)}
           scraper={scraper}
-          onJobsChanged={handleJobsDeleted}
+          onJobsChanged={handleJobsReplaced}
+          onDatabaseImported={() => { handleJobsReplaced(); scraper.resetToIdle(); }}
+          statusChipRef={statusChipRef}
         />
+
+        <BackToTop />
       </div>
     </HighlightContext.Provider>
   );

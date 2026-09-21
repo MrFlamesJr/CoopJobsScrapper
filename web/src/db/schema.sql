@@ -21,12 +21,14 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_job_number ON jobs(job_number) WHERE job_number <> '';
 
--- Favorites outlive the jobs table: `clear_jobs` never touches them, and they
--- re-link to a re-scraped job through job_number.
+-- Ratings (thumbs up/down) outlive the jobs table: `clear_jobs` never touches
+-- them, and they re-link to a re-scraped job through job_number. Table name
+-- stays `favorites` to stay compatible with the Python app's .db files.
 CREATE TABLE IF NOT EXISTS favorites (
   job_number TEXT PRIMARY KEY,
   title TEXT NOT NULL DEFAULT '',      -- snapshot, shown if the job disappears after a re-scrape
   employer TEXT NOT NULL DEFAULT '',
+  rating INTEGER NOT NULL DEFAULT 1,   -- 1 = liked, -1 = disliked
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

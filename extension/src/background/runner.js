@@ -160,13 +160,16 @@ export class ScrapeRunner {
       duplicates: 0,
       failed: 0,
       failed_jobs: [],
+      duplicate_jobs: [],
       anomalies: 0,
       retries: 0,
+      retry_events: [],
       current: null,
       total_pages: null,
       estimated_jobs: null,
       events: [],
       error: null,
+      reason: null,
       started_at: null,
       finished_at: null,
     };
@@ -306,6 +309,30 @@ export class ScrapeRunner {
     return this.status();
   }
 
+  /** Wipes a finished run's report (last_run/finished_at/counters/events),
+   * called when the web app deletes all jobs so a stale "Scrape complete"
+   * report doesn't survive an empty database. Refused while a scrape is
+   * actually in flight -- there is nothing to reset yet, and clearing state
+   * out from under a running scraper would corrupt its accounting. */
+  reset() {
+    if (this.isRunning) return this.status();
+    this._status = ScrapeRunner._initialStatus();
+    // The outbox and _nextSeq are persisted and restored together with
+    // _status (see _persist/_restore), and status() rides the outbox along
+    // in every snapshot the web app drains on connect. Clearing _status
+    // alone would leave unacknowledged jobs from the wiped-out run sitting
+    // in the outbox, ready to be re-inserted into the database the user
+    // just emptied -- so both must be cleared in the same breath.
+    this._outbox = [];
+    // Resetting _nextSeq to 0 is only safe because the outbox is emptied
+    // right above: with no old entries left, no future seq can collide
+    // with one still in flight. These two lines look independent but
+    // are not -- don't reset one without the other.
+    this._nextSeq = 0;
+    this._bump();
+    return this.status();
+  }
+
   // -- reporting from the portal content script ----------------------------
 
   /** Port of runner.py's on_ready. */
@@ -319,6 +346,7 @@ export class ScrapeRunner {
     if ("duplicates" in accounting) this._status.duplicates = accounting.duplicates;
     if ("failed" in accounting) this._status.failed = accounting.failed;
     if ("failedJobs" in accounting) this._status.failed_jobs = accounting.failedJobs.slice(0, 50);
+    if ("duplicateJobs" in accounting) this._status.duplicate_jobs = accounting.duplicateJobs.slice(0, 50);
   }
 
   /** Port of runner.py's on_event. `accounting` is the scraper's own
@@ -350,6 +378,11 @@ export class ScrapeRunner {
       return;
     } else if (kind === "retry") {
       this._status.retries += 1;
+      const msg = eventMessage(event);
+      this._status.retry_events.push(msg);
+      if (this._status.retry_events.length > 50) {
+        this._status.retry_events.splice(0, this._status.retry_events.length - 50);
+      }
     }
 
     if (kind !== "card") {
@@ -373,8 +406,9 @@ export class ScrapeRunner {
    * resolved without throwing. `failedJobs` must be the FINAL, post-retry
    * list (JobPortalScraper.failed after run() returns) -- see the module
    * docstring in portal.js and runner.py alike. */
-  handleFinished({ cardsSeen = 0, duplicates = 0, failedJobs = [] } = {}) {
+  handleFinished({ cardsSeen = 0, duplicates = 0, failedJobs = [], duplicateJobs = [] } = {}) {
     const cappedFailedJobs = failedJobs.slice(0, 50);
+    const cappedDuplicateJobs = duplicateJobs.slice(0, 50);
     const jobsSaved = this._status.jobs_saved;
     this._setState(
       "completed",
@@ -384,6 +418,7 @@ export class ScrapeRunner {
         duplicates,
         failed: failedJobs.length,
         failed_jobs: cappedFailedJobs,
+        duplicate_jobs: cappedDuplicateJobs,
         anomalies: failedJobs.length,
         finished_at: now(),
       },
@@ -394,16 +429,27 @@ export class ScrapeRunner {
    * except Exception cascade. `name` is the JS error class name the content
    * script's `finished`-with-error message carries (Cancelled, TabClosed, or
    * anything else); `message` is its .message. */
+  // `reason` is a machine-readable companion to `message`, so the UI (and
+  // tests) don't have to string-match "Browser window was closed." to tell
+  // a real cancel apart from a closed tab.
   handleError({ name = "", message = "" } = {}) {
     if (name === "Cancelled" || this._cancelRequested) {
-      this._setState("cancelled", "Scrape was cancelled.", { level: "warn", finished_at: now() });
+      this._setState("cancelled", "Scrape was cancelled.", {
+        level: "warn",
+        reason: "user_cancelled",
+        finished_at: now(),
+      });
       return;
     }
     if (name === "TabClosed" || isBrowserClosedMessage(message)) {
-      this._setState("cancelled", "Browser window was closed.", { level: "warn", finished_at: now() });
+      this._setState("cancelled", "Browser window was closed.", {
+        level: "warn",
+        reason: "browser_closed",
+        finished_at: now(),
+      });
       return;
     }
-    this._setState("failed", message, { level: "error", error: message, finished_at: now() });
+    this._setState("failed", message, { level: "error", error: message, reason: "failed", finished_at: now() });
   }
 
   /** Called by index.js when chrome.tabs.onRemoved (or a port disconnect)

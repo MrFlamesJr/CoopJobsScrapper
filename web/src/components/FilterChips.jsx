@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { FACET_FIELD_LABELS as FIELD_LABELS } from "../facetFields.js";
 import { useScrollDirection } from "../hooks/useScrollDirection.js";
 import "./FilterChips.css";
@@ -24,15 +24,14 @@ function CrossIcon() {
 /**
  * The active-filter chip row, sitting under the top bar. In order: a
  * `Search: <q>` chip (App owns `q` directly, not `filters`), a `Hide closed`
- * chip, then one chip per selected facet value, then "Clear all" once
- * there's more than one.
+ * chip, a rating-filter chip (`Liked only` / `Disliked hidden`), then one
+ * chip per selected facet value, then "Clear all" once there's more than
+ * one.
  *
- * The bar hides itself on scroll-down once it's actually stuck to the top
- * (a zero-height sentinel just above it flags that with an
- * IntersectionObserver), so nothing slides at the top of the page, and it
- * reappears on the smallest scroll-up. It also publishes its own height as
- * `--chips-offset` on `:root`, so sticky content further down (the details
- * rail) can sit right under it.
+ * The bar hides only while the page is scrolling down, comes back on the
+ * first small scroll up, and is always visible within the top 80px of the
+ * page. It publishes its own height as `--chips-offset` on `:root`, so
+ * sticky content further down (the details rail) can sit right under it.
  */
 export default function FilterChips({
   filters,
@@ -42,11 +41,18 @@ export default function FilterChips({
   onClearSearch,
   hideClosed,
   onShowClosed,
+  ratingFilter,
+  onClearRatingFilter,
 }) {
   const chips = [];
   const search = (q || "").trim();
   if (search) chips.push({ key: "__search", label: `Search: ${search}`, onClick: onClearSearch });
   if (hideClosed) chips.push({ key: "__hide-closed", label: "Hide closed", onClick: onShowClosed });
+  if (ratingFilter === "liked") {
+    chips.push({ key: "__rating", label: "Liked only", onClick: onClearRatingFilter });
+  } else if (ratingFilter === "hide_disliked") {
+    chips.push({ key: "__rating", label: "Disliked hidden", onClick: onClearRatingFilter });
+  }
   Object.entries(filters).forEach(([field, values]) => {
     (values || []).forEach((value) => {
       chips.push({ key: `${field}:${value}`, field, value, onClick: () => onRemove(field, value) });
@@ -54,45 +60,10 @@ export default function FilterChips({
   });
   const hasChips = chips.length > 0;
 
-  const direction = useScrollDirection({ showAfter: 6, hideAfter: 12 });
-  const [stuck, setStuck] = useState(false);
-  const sentinelRef = useRef(null);
+  const direction = useScrollDirection({ showAfter: 6, hideAfter: 24, topOffset: 80 });
   const barRef = useRef(null);
 
-  // The 800px breakpoint changes --app-topbar-h / --topbar-h (and so the
-  // bar's sticky offset), so the observer below needs rebuilding when it's
-  // crossed — a state bump is the simplest way to make that an effect dep.
-  const [isNarrow, setIsNarrow] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches,
-  );
-  useEffect(() => {
-    const mql = window.matchMedia("(max-width: 800px)");
-    const onChange = (e) => setIsNarrow(e.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, []);
-
-  useEffect(() => {
-    if (!hasChips) {
-      setStuck(false);
-      return undefined;
-    }
-    const sentinel = sentinelRef.current;
-    const bar = barRef.current;
-    if (!sentinel || !bar) return undefined;
-    // The bar sticks at `top: <offset>`, so the sentinel is already fully
-    // covered by it well before the sentinel itself reaches the viewport's
-    // top edge. Shrinking the observer's root by that offset makes `stuck`
-    // flip exactly when the bar starts sticking, not later.
-    const offset = parseFloat(getComputedStyle(bar).top) || 0;
-    const observer = new IntersectionObserver(([entry]) => setStuck(!entry.isIntersecting), {
-      rootMargin: `-${Math.ceil(offset)}px 0px 0px 0px`,
-    });
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasChips, isNarrow]);
-
-  const hidden = hasChips && stuck && direction === "down";
+  const hidden = hasChips && direction === "down";
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -112,56 +83,54 @@ export default function FilterChips({
   }, [hasChips, hidden]);
 
   return (
-    <>
-      <div ref={sentinelRef} className="filter-chips-bar__sentinel" aria-hidden="true" />
-      {hasChips && (
-        <div
-          ref={barRef}
-          className={`filter-chips-bar ${hidden ? "filter-chips-bar--hidden" : ""}`}
-          inert={hidden ? "" : undefined}
-        >
-          <div className="filter-chips">
-            {chips.map((chip) => (
-              <button
-                key={chip.key}
-                type="button"
-                className="filter-chip"
-                onClick={chip.onClick}
-                title={
-                  chip.field
-                    ? `Remove ${FIELD_LABELS[chip.field] || chip.field}: ${chip.value}`
-                    : `Remove ${chip.label}`
-                }
-              >
-                {chip.field ? (
-                  <>
-                    <span className="filter-chip__field">{FIELD_LABELS[chip.field] || chip.field}:</span>
-                    <span>{chip.value}</span>
-                  </>
-                ) : (
-                  <span>{chip.label}</span>
-                )}
-                <span className="filter-chip__x" aria-hidden="true">
-                  <CrossIcon />
-                </span>
-              </button>
-            ))}
-            {chips.length > 1 && (
-              <button
-                type="button"
-                className="filter-chip filter-chip--clear"
-                onClick={() => {
-                  onClearAll();
-                  onClearSearch();
-                  onShowClosed();
-                }}
-              >
-                Clear all
-              </button>
-            )}
-          </div>
+    hasChips && (
+      <div
+        ref={barRef}
+        className={`filter-chips-bar ${hidden ? "filter-chips-bar--hidden" : ""}`}
+        inert={hidden ? "" : undefined}
+      >
+        <div className="filter-chips">
+          {chips.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              className="filter-chip"
+              onClick={chip.onClick}
+              title={
+                chip.field
+                  ? `Remove ${FIELD_LABELS[chip.field] || chip.field}: ${chip.value}`
+                  : `Remove ${chip.label}`
+              }
+            >
+              {chip.field ? (
+                <>
+                  <span className="filter-chip__field">{FIELD_LABELS[chip.field] || chip.field}:</span>
+                  <span>{chip.value}</span>
+                </>
+              ) : (
+                <span>{chip.label}</span>
+              )}
+              <span className="filter-chip__x" aria-hidden="true">
+                <CrossIcon />
+              </span>
+            </button>
+          ))}
+          {chips.length > 1 && (
+            <button
+              type="button"
+              className="filter-chip filter-chip--clear"
+              onClick={() => {
+                onClearAll();
+                onClearSearch();
+                onShowClosed();
+                onClearRatingFilter();
+              }}
+            >
+              Clear all
+            </button>
+          )}
         </div>
-      )}
-    </>
+      </div>
+    )
   );
 }

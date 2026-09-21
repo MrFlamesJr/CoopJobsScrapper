@@ -11,3 +11,4 @@ web/dist/
 web/public/coopjobs-extension.zip
 .env
 web/.devlogs/
+.claude/

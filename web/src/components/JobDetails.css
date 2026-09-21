@@ -1,5 +1,5 @@
-/* No entrance animation here: in the grid the panel around it zooms out of
-   its card (JobPanel.css), in the favorites drawer the row reveals it. */
+/* No entrance animation here: in the grid the panel simply appears, in the
+   favorites drawer the row reveals it. */
 .job-details {
   position: relative;
   border-top: 1px solid var(--border);
@@ -99,6 +99,10 @@
   .job-details__facts {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
+
+  .job-details__resizer {
+    display: none;
+  }
 }
 
 .job-details__rail {
@@ -177,13 +181,18 @@
   white-space: pre-line;
 }
 
+.job-details__description {
+  position: relative;
+  max-width: var(--desc-width, 88ch);
+}
+
 .job-details__description p {
-  max-width: 75ch;
+  max-width: 100%;
 }
 
 /* Bullets split out of a description paragraph (see bulletItems). */
 .job-details__description ul {
-  max-width: 75ch;
+  max-width: 100%;
   margin: 0 0 0.65rem;
 }
 
@@ -194,6 +203,34 @@
 
 .job-details__description li + li {
   margin-top: 0.2rem;
+}
+
+/* Invisible until hovered: a faint line appears on the description's right edge. */
+.job-details__resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.job-details__resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: transparent;
+  border-radius: 2px;
+  transition: background var(--transition-fast);
+}
+
+.job-details__resizer:hover::after {
+  background: var(--border);
+}
+
+.job-details__resizer:active::after {
+  background: var(--accent);
 }
 
 .job-details__section ul {

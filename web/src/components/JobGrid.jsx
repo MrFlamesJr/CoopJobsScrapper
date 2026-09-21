@@ -5,7 +5,7 @@ import Spinner from "./Spinner.jsx";
 import { useGridColumns } from "../hooks/useGridColumns.js";
 import "./JobGrid.css";
 
-const NO_FAVORITES = new Set();
+const NO_RATINGS = new Map();
 
 // How long a card that just arrived plays its rise-in entrance. Live
 // refreshes are more frequent than that, so the arrival time is what decides,
@@ -21,8 +21,8 @@ export default function JobGrid({
   onToggleExpand,
   onOpenScraper,
   onClearFilters,
-  savedJobNumbers = NO_FAVORITES,
-  onToggleFavorite,
+  ratingMap = NO_RATINGS,
+  onRate,
   scraperStatus = null,
   scraperRunning = false,
 }) {
@@ -119,8 +119,8 @@ export default function JobGrid({
           job={job}
           expanded={expanded.has(job.id)}
           onToggle={onToggleExpand}
-          saved={savedJobNumbers.has(job.job_number)}
-          onToggleFavorite={onToggleFavorite}
+          rating={ratingMap.get(job.job_number)}
+          onRate={(rating) => onRate?.(job, rating)}
           isNew={newIds.has(job.id)}
         />,
       );
@@ -132,8 +132,8 @@ export default function JobGrid({
         <JobPanel
           key={`panel-${job.id}`}
           job={job}
-          saved={savedJobNumbers.has(job.job_number)}
-          onToggleFavorite={onToggleFavorite}
+          rating={ratingMap.get(job.job_number)}
+          onRate={(rating) => onRate?.(job, rating)}
           onClose={() => onToggleExpand(job.id)}
         />,
       );

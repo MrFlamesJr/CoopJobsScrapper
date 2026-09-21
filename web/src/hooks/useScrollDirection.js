@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
  * Tracks which way the page is scrolling, debounced against jitter: flipping
  * to "down" needs `hideAfter` px of net downward movement since the last
  * flip, flipping to "up" needs `showAfter` px upward — a small back-and-forth
- * (trackpad wobble, a bouncing scroll) never flips it. Returning to the very
- * top of the page always resets to "up". One passive, rAF-throttled `window`
- * scroll listener; state only changes on an actual flip.
+ * (trackpad wobble, a bouncing scroll) never flips it. Returning to (or near)
+ * the top of the page always resets to "up"; `topOffset` is how many px from
+ * the top still count as the top. One passive, rAF-throttled `window` scroll
+ * listener; state only changes on an actual flip.
  */
-export function useScrollDirection({ showAfter = 6, hideAfter = 12 } = {}) {
+export function useScrollDirection({ showAfter = 6, hideAfter = 12, topOffset = 0 } = {}) {
   const [direction, setDirection] = useState("up");
   const lastYRef = useRef(0);
   // Net movement since the last flip, in the current direction.
@@ -25,7 +26,7 @@ export function useScrollDirection({ showAfter = 6, hideAfter = 12 } = {}) {
       const delta = y - lastYRef.current;
       lastYRef.current = y;
 
-      if (y <= 0) {
+      if (y <= topOffset) {
         accRef.current = 0;
         if (dirRef.current !== "up") {
           dirRef.current = "up";
@@ -62,7 +63,7 @@ export function useScrollDirection({ showAfter = 6, hideAfter = 12 } = {}) {
 
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [showAfter, hideAfter]);
+  }, [showAfter, hideAfter, topOffset]);
 
   return direction;
 }

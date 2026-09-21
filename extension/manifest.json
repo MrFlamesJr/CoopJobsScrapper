@@ -5,7 +5,8 @@
   "permissions": ["storage", "unlimitedStorage", "tabs", "scripting"],
   "host_permissions": [
     "https://experiential-learning.uottawa.ca/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "https://mrflamesjr.github.io/*"
   ],
   "background": {
     "service_worker": "background/index.js"
@@ -17,7 +18,7 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["http://localhost/*"],
+      "matches": ["http://localhost/*", "https://mrflamesjr.github.io/*"],
       "js": ["content/bridge.js"],
       "run_at": "document_idle"
     }

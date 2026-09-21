@@ -1,21 +1,21 @@
-/* Zero-height marker in normal flow, just above the sticky bar. Once it
-   scrolls out of the viewport the bar below it is genuinely stuck to the
-   top, and only then may scrolling down hide it — nothing slides while the
-   page is still at the top. */
-.filter-chips-bar__sentinel {
-  height: 0;
-}
-
-/* Slides out from behind the (opaque) top bar on scroll-down, and back on
-   scroll-up. Bleeds over .app-main's side padding, same as the top bar. */
+/* Translucent, blurred bar sliding out from behind the (opaque) top bar on
+   scroll-down, then back on scroll-up. The top bar above stays opaque on
+   purpose so this bar slides up behind it. Bleeds over .app-main's side
+   padding, same as the top bar. */
 .filter-chips-bar {
   position: sticky;
   top: calc(var(--app-topbar-h, 0px) + var(--topbar-h, 2.75rem));
   z-index: 5;
   margin: 0 -1.3rem;
   padding: 0 1.3rem;
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .filter-chips-bar { background: var(--bg); }
 }
 
 .filter-chips-bar--hidden {

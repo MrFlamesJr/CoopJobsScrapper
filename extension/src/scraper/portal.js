@@ -234,6 +234,7 @@ export class JobPortalScraper {
     this.anomalies = 0;
     this.cardsSeen = 0;
     this.duplicates = 0;
+    this.duplicateJobs = [];
     // Counted once, up front, so the UI can show "page N of M" from the very
     // first card (see run()). null means the pager could not be read.
     this.totalPages = null;
@@ -397,6 +398,12 @@ export class JobPortalScraper {
       const jobNumber = job.job_number || "";
       if (jobNumber && this._seenJobNumbers.has(jobNumber)) {
         this.duplicates += 1;
+        this.duplicateJobs.push({
+          page: pageNumber,
+          title: job.title || "",
+          employer: job.employer || "",
+          job_number: jobNumber,
+        });
         continue;
       }
       if (jobNumber) this._seenJobNumbers.add(jobNumber);
@@ -477,6 +484,12 @@ export class JobPortalScraper {
           // Not an anomaly and never retried -- the portal really did list
           // this job twice in a row.
           this.duplicates += 1;
+          this.duplicateJobs.push({
+            page: pageNumber,
+            title: cardTitle,
+            employer,
+            job_number: exc.jobNumber,
+          });
           this._saveSnapshot(
             pageNumber,
             index,
@@ -840,6 +853,12 @@ export class JobPortalScraper {
         const jobNumber = job.job_number || "";
         if (jobNumber && this._seenJobNumbers.has(jobNumber)) {
           this.duplicates += 1;
+          this.duplicateJobs.push({
+            page,
+            title: job.title || "",
+            employer: job.employer || "",
+            job_number: jobNumber,
+          });
           continue;
         }
         if (jobNumber) this._seenJobNumbers.add(jobNumber);

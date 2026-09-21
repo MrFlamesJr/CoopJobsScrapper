@@ -137,6 +137,35 @@ describe("ScrapeRunner", () => {
     expect(final.failed_jobs).toHaveLength(50);
   });
 
+  test("test_duplicate_jobs_list_is_capped_at_50", () => {
+    startAndBeginScraping(runner);
+    const duplicateJobs = Array.from({ length: 75 }, (_, i) => ({ page: 1, title: `Job ${i}`, employer: "Acme", job_number: `J${i}` }));
+    runner.handleFinished({ cardsSeen: 75, duplicates: 75, failedJobs: [], duplicateJobs });
+
+    const final = runner.status();
+    expect(final.duplicates).toBe(75);
+    expect(final.duplicate_jobs).toHaveLength(50);
+  });
+
+  test("test_retry_events_are_collected_and_capped_at_50", () => {
+    startAndBeginScraping(runner);
+    for (let i = 0; i < 60; i += 1) {
+      runner.handleEvent({
+        type: "retry",
+        page: 1,
+        index: 1,
+        total: 10,
+        title: `Job ${i}`,
+      });
+    }
+
+    const final = runner.status();
+    expect(final.retries).toBe(60);
+    expect(final.retry_events).toHaveLength(50);
+    // The first 10 retries are dropped (60 - 50), so the first retained event should be retry #10.
+    expect(final.retry_events[0]).toContain("Job 10");
+  });
+
   test("test_cancel_sets_state_to_cancelled", () => {
     startAndBeginScraping(runner);
     runner.handlePage(1, 1, {});
@@ -208,6 +237,21 @@ describe("ScrapeRunner", () => {
     const status = runner.status();
     expect(status.state).toBe("failed");
     expect(status.error).toContain("boom");
+    expect(status.reason).toBe("failed");
+  });
+
+  test("a tab close reports reason browser_closed, an explicit cancel reports user_cancelled", () => {
+    startAndBeginScraping(runner);
+    runner.handleTabClosed();
+    expect(runner.status().state).toBe("cancelled");
+    expect(runner.status().reason).toBe("browser_closed");
+
+    const cancelled = new ScrapeRunner({ transport: makeFakeTransport() });
+    startAndBeginScraping(cancelled);
+    cancelled.cancel();
+    cancelled.handleError({ name: "Cancelled" });
+    expect(cancelled.status().state).toBe("cancelled");
+    expect(cancelled.status().reason).toBe("user_cancelled");
   });
 
   // -- Terminal status (last_run's source data; see the top-of-file note) --
@@ -372,6 +416,57 @@ describe("ScrapeRunner", () => {
     expect(() => JSON.stringify(runner.status())).not.toThrow();
   });
 
+  // -- reset(): wipes a finished run's report -------------------------------
+
+  test("reset clears a finished run's report and returns to idle", () => {
+    startAndBeginScraping(runner);
+    runner.handleFinished({ cardsSeen: 1, duplicates: 0, failedJobs: [] });
+    expect(runner.status().state).toBe("completed");
+
+    runner.reset();
+
+    const status = runner.status();
+    expect(status.state).toBe("idle");
+    expect(status.finished_at).toBeNull();
+    expect(status.jobs_saved).toBe(0);
+    expect(status.pages_completed).toBe(0);
+    expect(status.events).toEqual([]);
+  });
+
+  test("reset clears unacknowledged outbox entries and their counters", () => {
+    // A stale outbox riding along in status() would get re-inserted into the
+    // database the user just emptied by "delete all jobs" -- see the comment
+    // in runner.js's reset().
+    startAndBeginScraping(runner);
+    runner.handleEvent(scrapedEvent(1, 1, 2, { job_number: "J1", title: "Dev", employer: "Acme" }));
+    runner.handleEvent({
+      type: "retry", page: 1, index: 2, total: 2, title: "Dev2", attempt: 1, reason: "slow panel",
+    });
+    runner.handleEvent(scrapedEvent(1, 2, 2, { job_number: "J2", title: "Dev2", employer: "Acme" }));
+    runner.handlePage(1, 2, {});
+    runner.handleFinished({ cardsSeen: 2, duplicates: 0, failedJobs: [] });
+    expect(runner.status().outbox.length).toBeGreaterThan(0);
+
+    runner.reset();
+
+    const status = runner.status();
+    expect(status.outbox).toEqual([]);
+    expect(status.jobs_saved).toBe(0);
+    expect(status.pages_completed).toBe(0);
+    expect(status.retries).toBe(0);
+    expect(status.events).toEqual([]);
+  });
+
+  test("reset is a no-op while a scrape is running", () => {
+    startAndBeginScraping(runner);
+    runner.handlePage(1, 1, {});
+
+    const status = runner.reset();
+
+    expect(status.state).toBe("scraping");
+    expect(runner.status().pages_completed).toBe(1);
+  });
+
   // -- subscribe(): replaces wait_for_change()/SSE --------------------------
 
   test("test_subscribe_is_notified_on_every_change", () => {
@@ -461,5 +556,82 @@ describe("ScrapeRunner", () => {
     expect(fresh.status().state).toBe("idle");
     expect(fresh.outbox()).toEqual([]);
     expect(RUNNING_STATES.has(fresh.status().state)).toBe(false);
+  });
+
+  // -- Terminal state assertions for window closing safety net --
+  // These tests ensure the runner reaches terminal states via all paths,
+  // so the index.js safety net subscriber (which closes the portal window
+  // whenever a terminal state is reached) will catch every case.
+
+  test("handleFinished() transitions to completed terminal state", () => {
+    startAndBeginScraping(runner);
+    runner.handleFinished({ cardsSeen: 0, duplicates: 0, failedJobs: [] });
+
+    const status = runner.status();
+    expect(status.state).toBe("completed");
+    expect(status.finished_at).not.toBeNull();
+  });
+
+  test("handleError with Cancelled transitions to cancelled terminal state", () => {
+    startAndBeginScraping(runner);
+    runner.handleError({ name: "Cancelled" });
+
+    const status = runner.status();
+    expect(status.state).toBe("cancelled");
+    expect(status.reason).toBe("user_cancelled");
+    expect(status.finished_at).not.toBeNull();
+  });
+
+  test("handleError with TabClosed transitions to cancelled terminal state", () => {
+    startAndBeginScraping(runner);
+    runner.handleError({ name: "TabClosed", message: "Browser window was closed." });
+
+    const status = runner.status();
+    expect(status.state).toBe("cancelled");
+    expect(status.reason).toBe("browser_closed");
+    expect(status.finished_at).not.toBeNull();
+  });
+
+  test("handleError with browser closed message transitions to cancelled terminal state", () => {
+    startAndBeginScraping(runner);
+    runner.handleError({ name: "RuntimeError", message: "no such window" });
+
+    const status = runner.status();
+    expect(status.state).toBe("cancelled");
+    expect(status.reason).toBe("browser_closed");
+    expect(status.finished_at).not.toBeNull();
+  });
+
+  test("handleError with unexpected error transitions to failed terminal state", () => {
+    startAndBeginScraping(runner);
+    runner.handleError({ name: "ScrapeError", message: "unexpected scraper failure" });
+
+    const status = runner.status();
+    expect(status.state).toBe("failed");
+    expect(status.reason).toBe("failed");
+    expect(status.error).toContain("unexpected scraper failure");
+    expect(status.finished_at).not.toBeNull();
+  });
+
+  test("handleTabClosed() transitions to cancelled terminal state", () => {
+    startAndBeginScraping(runner);
+    runner.handleTabClosed();
+
+    const status = runner.status();
+    expect(status.state).toBe("cancelled");
+    expect(status.reason).toBe("browser_closed");
+    expect(status.finished_at).not.toBeNull();
+  });
+
+  test("cancel() followed by handleError() transitions to cancelled terminal state", () => {
+    startAndBeginScraping(runner);
+    const cancelStatus = runner.cancel();
+    expect(cancelStatus.state).toBe("cancelling");
+
+    runner.handleError({ name: "Cancelled" });
+    const status = runner.status();
+    expect(status.state).toBe("cancelled");
+    expect(status.reason).toBe("user_cancelled");
+    expect(status.finished_at).not.toBeNull();
   });
 });

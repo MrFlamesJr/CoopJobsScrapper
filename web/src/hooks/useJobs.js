@@ -5,7 +5,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * Loads the job list for the current filter state.
- * `filters` shape: { q, sort, deadline, filters: { field: [values] } }
+ * `filters` shape: { q, sorts: [{field, dir}], rating, deadline, filters: { field: [values] } }
  * `refreshKey` bumps to force a refetch (e.g. after a scrape finishes).
  * `silent` marks that bump as a background refresh (jobs arriving live during
  * a scrape): the list is swapped in without a loading flag, so the grid never
@@ -18,7 +18,7 @@ const SEARCH_DEBOUNCE_MS = 250;
  * ahead of the results while typing.
  */
 export function useJobs(filters, refreshKey, silent = false) {
-  const { q, sort, deadline, filters: facetFilters } = filters;
+  const { q, sorts, rating, deadline, filters: facetFilters } = filters;
 
   const [debouncedQ, setDebouncedQ] = useState(q);
   useEffect(() => {
@@ -53,7 +53,7 @@ export function useJobs(filters, refreshKey, silent = false) {
       setError(null);
     }
 
-    const params = { q: debouncedQ, sort, deadline, ...facetFilters };
+    const params = { q: debouncedQ, sorts, rating, deadline, ...facetFilters };
 
     fetchJobs(params, controller.signal)
       .then((data) => {
@@ -73,7 +73,7 @@ export function useJobs(filters, refreshKey, silent = false) {
 
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ, sort, deadline, JSON.stringify(facetFilters), refreshKey]);
+  }, [debouncedQ, JSON.stringify(sorts), rating, deadline, JSON.stringify(facetFilters), refreshKey]);
 
   return { jobs, total, loading, error, appliedQ };
 }

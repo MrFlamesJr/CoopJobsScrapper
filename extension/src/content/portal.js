@@ -110,7 +110,7 @@ async function runScrape() {
 
   try {
     await scraper.run();
-    post({ type: "finished", cardsSeen: scraper.cardsSeen, duplicates: scraper.duplicates, failedJobs: scraper.failed });
+    post({ type: "finished", cardsSeen: scraper.cardsSeen, duplicates: scraper.duplicates, failedJobs: scraper.failed, duplicateJobs: scraper.duplicateJobs });
   } catch (exc) {
     post({ type: "error", name: (exc && exc.name) || "Error", message: (exc && exc.message) || String(exc) });
   }
@@ -125,6 +125,7 @@ function currentAccounting(scraper) {
     duplicates: scraper.duplicates,
     failed: scraper.failed.length,
     failedJobs: scraper.failed,
+    duplicateJobs: scraper.duplicateJobs,
   };
 }
 

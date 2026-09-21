@@ -1,6 +1,6 @@
 /* Sticky bar above the grid and the chips: count + live line on the left,
-   Collapse all / Export / Favorites pinned right. It bleeds over .app-main's
-   side padding so scrolling cards don't show beside it. */
+   Collapse all pinned right. It bleeds over .app-main's side padding so
+   scrolling cards don't show beside it. */
 .top-bar {
   position: sticky;
   top: var(--app-topbar-h, 0px);
@@ -41,6 +41,9 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  flex: 0 1 auto;
+  margin-right: auto;
+  max-width: 100%;
   min-width: 0;
   background: none;
   border: 0;
@@ -70,132 +73,139 @@
   min-width: 0.5rem;
 }
 
-.top-bar__button {
+/* Triage/freshness stats. Sits between the live line and Collapse all. The
+   live line is the only flexible element on this side, and the Collapse all
+   button/stats always keep their reserved slots. */
+.top-bar__stats {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  background: var(--raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  gap: 1.9rem;
+  flex: 0 0 auto;
+}
+
+.top-bar__stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Higher specificity than RatingButtons.css's .thumb-up-icon/.thumb-down-icon
+   (17px, sized for the card buttons), so these come out smaller here
+   regardless of stylesheet import order. */
+.top-bar__stat .top-bar__stat-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.top-bar__stat-icon--liked {
+  color: var(--accent);
+}
+
+.top-bar__stat-icon--disliked {
+  color: var(--status-error);
+}
+
+/* tabular-nums keeps digit widths identical (e.g. 99 -> 100 doesn't reflow);
+   the per-cell min-width reserves room for the largest plausible value, so
+   growth happens inside the box instead of shifting neighbouring cells. The
+   value is left-aligned in that box so it stays next to its own label, and
+   the spare width sits on the right, between this stat and the next. */
+.top-bar__stat-value {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-align: left;
+}
+
+.top-bar__stat-value--count {
+  min-width: 4ch; /* up to 9,999 */
+}
+
+.top-bar__stat-value--percent {
+  min-width: 5ch; /* "100%" */
+}
+
+.top-bar__stat-value--time {
+  min-width: 13ch; /* "11 months ago" */
+}
+
+.top-bar__stat-value--pages {
+  min-width: 8ch; /* "37 of 37" or "999 of 999" */
+}
+
+.top-bar__stat:last-child .top-bar__stat-value {
+  min-width: 0;
+}
+
+/* Uppercase micro-label, same treatment as .status-chip__section. */
+.top-bar__stat-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Amber warning style for the Pages stat on incomplete runs. */
+.top-bar__stat--warn {
+  color: var(--tone-tomorrow-fg);
+}
+
+.top-bar__stat--warn .top-bar__stat-value {
+  color: var(--tone-tomorrow-fg);
+}
+
+.top-bar__button {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   color: var(--text);
   font-size: 0.78rem;
-  padding: 0.3rem 0.65rem;
   white-space: nowrap;
-  transition: border-color var(--transition-fast);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+  min-width: 13ch; /* "Collapse all (99)" */
+  transition: color var(--transition-fast), text-decoration-thickness var(--transition-fast), transform var(--transition-fast);
 }
 
 .top-bar__button:hover {
-  border-color: var(--border-hover, var(--accent));
+  text-decoration-thickness: 2px;
+}
+
+.top-bar__button:active {
+  opacity: 0.7;
+  transform: translateY(1px);
+}
+
+.top-bar__button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .top-bar__button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.top-bar__button:disabled:hover {
-  border-color: var(--border);
-}
-
-.top-bar__file-input {
-  display: none;
-}
-
-.top-bar__db-error {
-  color: var(--tone-today-fg);
-  font-size: 0.78rem;
-  white-space: nowrap;
-}
-
-/* "Replace the current database?" confirmation, opened by "Open database". */
-.top-bar__confirm-dialog {
-  width: min(400px, calc(100vw - 2.5rem));
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 1rem 1.1rem;
-  box-shadow: var(--shadow-2);
-}
-
-.top-bar__confirm-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
-}
-
-.top-bar__confirm-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.top-bar__confirm-text {
-  margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.5;
-}
-
-.top-bar__confirm-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-}
-
-.top-bar__confirm-cancel {
-  background: var(--raised);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.9rem;
-  font-size: 0.85rem;
-}
-
-.top-bar__icon {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.top-bar__count-badge {
   color: var(--muted);
 }
 
-.top-bar__heart {
-  display: inline-flex;
-  color: var(--favorite);
+.top-bar__button:disabled:hover {
+  text-decoration-thickness: 1px;
+  color: var(--muted);
 }
 
-.top-bar__heart .heart-icon {
-  width: 14px;
-  height: 14px;
-  fill: var(--favorite);
-}
-
-@keyframes top-bar-heart-pulse {
-  0% {
-    transform: scale(1);
-  }
-  40% {
-    transform: scale(1.35);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-.top-bar__heart--pulse {
-  animation: top-bar-heart-pulse 420ms ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .top-bar__heart--pulse {
-    animation: none;
-  }
-}
-
-/* Export keeps just its icon once the row gets tight. */
-@media (max-width: 800px) {
-  .top-bar__button--export .top-bar__label {
-    display: none;
-  }
+/* Kept in the row (not unmounted) so collapsing the last card or two doesn't
+   slide the stats group over to fill its slot. Visibility (not display) keeps
+   the reserved min-width slot so the row never reflows. */
+.top-bar__button--hidden {
+  visibility: hidden;
+  pointer-events: none;
 }

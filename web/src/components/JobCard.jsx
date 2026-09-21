@@ -1,7 +1,7 @@
 import { memo, useContext } from "react";
 import DeadlineChip from "./DeadlineChip.jsx";
 import { loadJobDetail } from "./JobDetails.jsx";
-import FavoriteButton from "./FavoriteButton.jsx";
+import RatingButtons from "./RatingButtons.jsx";
 import JobNumber from "./JobNumber.jsx";
 import { Highlight, HighlightContext } from "../highlight.jsx";
 import "./JobCard.css";
@@ -18,7 +18,7 @@ const SNIPPET_LABELS = {
   deadline_text: "Deadline",
 };
 
-function JobCard({ job, expanded, onToggle, saved, onToggleFavorite, isNew }) {
+function JobCard({ job, expanded, onToggle, rating, onRate, isNew }) {
   const meta = [job.location, job.duration, job.work_model].filter(Boolean).join(" · ");
   const words = useContext(HighlightContext);
   // Only worth showing once highlighting is on: it's a snippet from a field
@@ -83,10 +83,10 @@ function JobCard({ job, expanded, onToggle, saved, onToggleFavorite, isNew }) {
           <span className="job-card__meta">
             <Highlight text={meta} />
           </span>
-          <FavoriteButton
+          <RatingButtons
             jobNumber={job.job_number}
-            saved={saved}
-            onToggle={() => onToggleFavorite?.(job)}
+            rating={rating}
+            onRate={onRate}
           />
         </div>
       </div>

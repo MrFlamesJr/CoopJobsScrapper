@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import * as db from "./queries.js";
 import { createHandle, createJobFactory } from "./testUtils.js";
+import schemaSql from "./schema.sql?raw";
 
 let handle;
 let jobFactory;
@@ -223,56 +224,174 @@ test("test_export_jobs_shape_and_order", () => {
   expect(Array.isArray(exported[0].requirements)).toBe(true);
 });
 
-test("test_add_favorite_snapshots_job_and_is_idempotent", () => {
+test("test_set_rating_snapshots_job_and_is_idempotent", () => {
   db.insertJobs(handle, [jobFactory({ job_number: "F1", title: "Backend Dev", employer: "Acme" })]);
-  expect(db.addFavorite(handle, "F1")).toBe(true);
-  expect(db.addFavorite(handle, "F1")).toBe(true);
+  expect(db.setRating(handle, "F1", 1)).toBe(true);
+  expect(db.setRating(handle, "F1", 1)).toBe(true);
 
-  const favorites = db.listFavorites(handle);
-  expect(favorites.length).toBe(1);
-  expect(favorites[0].job_number).toBe("F1");
-  expect(favorites[0].title).toBe("Backend Dev");
-  expect(favorites[0].employer).toBe("Acme");
-  expect(favorites[0].job.title).toBe("Backend Dev");
+  const ratings = db.listRatings(handle);
+  expect(ratings.length).toBe(1);
+  expect(ratings[0].job_number).toBe("F1");
+  expect(ratings[0].title).toBe("Backend Dev");
+  expect(ratings[0].employer).toBe("Acme");
+  expect(ratings[0].rating).toBe(1);
+  expect(ratings[0].job.title).toBe("Backend Dev");
 });
 
-test("test_add_favorite_rejects_unknown_and_blank_job_number", () => {
-  expect(db.addFavorite(handle, "nope")).toBe(false);
-  expect(db.addFavorite(handle, "")).toBe(false);
-  expect(db.listFavorites(handle)).toEqual([]);
-});
-
-test("test_remove_favorite", () => {
+test("test_set_rating_can_change_liked_to_disliked", () => {
   db.insertJobs(handle, [jobFactory({ job_number: "F1" })]);
-  db.addFavorite(handle, "F1");
-  expect(db.removeFavorite(handle, "F1")).toBe(true);
-  expect(db.removeFavorite(handle, "F1")).toBe(false);
-  expect(db.listFavorites(handle)).toEqual([]);
+  db.setRating(handle, "F1", 1);
+  db.setRating(handle, "F1", -1);
+  const ratings = db.listRatings(handle);
+  expect(ratings.length).toBe(1);
+  expect(ratings[0].rating).toBe(-1);
 });
 
-test("test_list_favorites_is_newest_first", () => {
+test("test_set_rating_rejects_unknown_and_blank_job_number", () => {
+  expect(db.setRating(handle, "nope", 1)).toBe(false);
+  expect(db.setRating(handle, "", 1)).toBe(false);
+  expect(db.listRatings(handle)).toEqual([]);
+});
+
+test("test_set_rating_zero_clears_it", () => {
+  db.insertJobs(handle, [jobFactory({ job_number: "F1" })]);
+  db.setRating(handle, "F1", 1);
+  expect(db.setRating(handle, "F1", 0)).toBe(true);
+  expect(db.setRating(handle, "F1", 0)).toBe(true); // idempotent, no job row needed
+  expect(db.listRatings(handle)).toEqual([]);
+});
+
+test("test_rating_counts_excludes_ratings_whose_job_is_gone", () => {
+  db.insertJobs(handle, [
+    jobFactory({ job_number: "a" }),
+    jobFactory({ job_number: "b" }),
+    jobFactory({ job_number: "orphan" }),
+  ]);
+  db.setRating(handle, "a", 1);
+  db.setRating(handle, "b", -1);
+  db.setRating(handle, "orphan", 1);
+  // The job disappears (a re-scrape without it, or clearJobs), but its rating
+  // survives -- see test_ratings_survive_clear_jobs_and_relink -- and must
+  // not count toward the triage total any more.
+  db.clearJobs(handle);
+  db.insertJobs(handle, [jobFactory({ job_number: "a" }), jobFactory({ job_number: "b" })]);
+
+  expect(db.ratingCounts(handle)).toEqual({ liked: 1, disliked: 1 });
+});
+
+test("test_list_ratings_is_newest_first", () => {
   db.insertJobs(handle, [jobFactory({ job_number: "a" }), jobFactory({ job_number: "b" }), jobFactory({ job_number: "c" })]);
-  for (const jobNumber of ["a", "b", "c"]) db.addFavorite(handle, jobNumber);
+  for (const jobNumber of ["a", "b", "c"]) db.setRating(handle, jobNumber, 1);
 
-  const favorites = db.listFavorites(handle);
-  expect(favorites.map((r) => r.job_number)).toEqual(["c", "b", "a"]);
+  const ratings = db.listRatings(handle);
+  expect(ratings.map((r) => r.job_number)).toEqual(["c", "b", "a"]);
 });
 
-test("test_favorites_survive_clear_jobs_and_relink", () => {
+test("test_ratings_survive_clear_jobs_and_relink", () => {
   db.insertJobs(handle, [jobFactory({ job_number: "F1", title: "Backend Dev", employer: "Acme" })]);
-  db.addFavorite(handle, "F1");
+  db.setRating(handle, "F1", 1);
 
   db.clearJobs(handle);
-  const orphan = db.listFavorites(handle)[0];
+  const orphan = db.listRatings(handle)[0];
   expect(orphan.job).toBeNull();
   expect(orphan.title).toBe("Backend Dev");
   expect(orphan.employer).toBe("Acme");
 
   db.insertJobs(handle, [jobFactory({ job_number: "F1", title: "Backend Dev II" })]);
-  const relinked = db.listFavorites(handle)[0];
+  const relinked = db.listRatings(handle)[0];
   expect(relinked.job.job_number).toBe("F1");
   expect(relinked.job.title).toBe("Backend Dev II");
   expect(relinked.title).toBe("Backend Dev"); // snapshot is untouched
+});
+
+test("test_sorts_array_builds_layered_order_by", () => {
+  db.insertJobs(handle, [
+    jobFactory({ job_number: "1", employer: "Acme", title: "B" }),
+    jobFactory({ job_number: "2", employer: "Acme", title: "A" }),
+    jobFactory({ job_number: "3", employer: "Beta", title: "Z" }),
+  ]);
+  const results = db.queryJobs(handle, {
+    sorts: [
+      { field: "employer", dir: "asc" },
+      { field: "title", dir: "desc" },
+    ],
+  });
+  expect(results.map((r) => r.job_number)).toEqual(["1", "2", "3"]);
+});
+
+test("test_sorts_array_ignores_unknown_fields", () => {
+  db.insertJobs(handle, [jobFactory({ job_number: "1", title: "B" }), jobFactory({ job_number: "2", title: "A" })]);
+  const results = db.queryJobs(handle, { sorts: [{ field: "bogus", dir: "asc" }] });
+  expect(results.map((r) => r.job_number)).toEqual(["2", "1"]); // falls through to the title tiebreak
+});
+
+test("test_sorts_array_deadline_nulls_last_both_directions", () => {
+  db.insertJobs(handle, [
+    jobFactory({ job_number: "b", title: "B", deadline_text: "Jan 12, 2026" }),
+    jobFactory({ job_number: "a", title: "A", deadline_text: "" }),
+    jobFactory({ job_number: "c", title: "C", deadline_text: "Jan 5, 2026" }),
+  ]);
+  const ascending = db.queryJobs(handle, { sorts: [{ field: "deadline", dir: "asc" }] });
+  expect(ascending.map((r) => r.job_number)).toEqual(["c", "b", "a"]);
+
+  const descending = db.queryJobs(handle, { sorts: [{ field: "deadline", dir: "desc" }] });
+  expect(descending.map((r) => r.job_number)).toEqual(["b", "c", "a"]);
+});
+
+test("test_sorts_array_myrating_liked_first_and_disliked_first", () => {
+  db.insertJobs(handle, [
+    jobFactory({ job_number: "liked", title: "A" }),
+    jobFactory({ job_number: "disliked", title: "B" }),
+    jobFactory({ job_number: "neutral", title: "C" }),
+  ]);
+  db.setRating(handle, "liked", 1);
+  db.setRating(handle, "disliked", -1);
+
+  const ascending = db.queryJobs(handle, { sorts: [{ field: "myrating", dir: "asc" }] });
+  expect(ascending.map((r) => r.job_number)).toEqual(["liked", "neutral", "disliked"]);
+
+  const descending = db.queryJobs(handle, { sorts: [{ field: "myrating", dir: "desc" }] });
+  expect(descending.map((r) => r.job_number)).toEqual(["disliked", "neutral", "liked"]);
+});
+
+test("test_rating_filter_liked_and_hide_disliked", () => {
+  db.insertJobs(handle, [
+    jobFactory({ job_number: "1" }),
+    jobFactory({ job_number: "2" }),
+    jobFactory({ job_number: "3" }),
+  ]);
+  db.setRating(handle, "1", 1);
+  db.setRating(handle, "2", -1);
+
+  const liked = db.queryJobs(handle, { rating: "liked" });
+  expect(liked.map((r) => r.job_number)).toEqual(["1"]);
+
+  const notDisliked = new Set(db.queryJobs(handle, { rating: "hide_disliked" }).map((r) => r.job_number));
+  expect(notDisliked).toEqual(new Set(["1", "3"]));
+});
+
+test("test_init_db_migrates_favorites_missing_rating_column", () => {
+  // Simulate a database created before the `rating` column existed (the
+  // Python app's .db files, or an older export).
+  handle.run("DROP TABLE favorites", []);
+  handle.run(
+    `CREATE TABLE favorites (
+      job_number TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      employer TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    [],
+  );
+  handle.run("INSERT INTO favorites (job_number, title, employer) VALUES ('F1', 'Old Fave', 'Acme')", []);
+
+  db.initDb(handle, schemaSql);
+
+  const columns = handle.exec("PRAGMA table_info(favorites)", []);
+  expect(columns.some((c) => c.name === "rating")).toBe(true);
+  const ratings = db.listRatings(handle);
+  expect(ratings[0].job_number).toBe("F1");
+  expect(ratings[0].rating).toBe(1); // pre-existing rows count as liked
 });
 
 test("test_last_scraped_at_none_when_empty", () => {
@@ -468,38 +587,38 @@ describe("test_server.py data-behavior tests (ported against queries.js)", () =>
     expect(db.countJobs(handle)).toBe(0);
   });
 
-  test("test_favorites_add_list_and_remove", () => {
+  test("test_ratings_set_list_and_clear", () => {
     db.insertJobs(handle, [makeJob({ job_number: "1", title: "Backend Dev" })]);
-    expect(db.listFavorites(handle)).toEqual([]);
+    expect(db.listRatings(handle)).toEqual([]);
 
-    expect(db.addFavorite(handle, "1")).toBe(true);
-    let favorites = db.listFavorites(handle);
-    expect(favorites.length).toBe(1);
-    expect(favorites[0].job_number).toBe("1");
-    expect(favorites[0].job.title).toBe("Backend Dev");
+    expect(db.setRating(handle, "1", 1)).toBe(true);
+    let ratings = db.listRatings(handle);
+    expect(ratings.length).toBe(1);
+    expect(ratings[0].job_number).toBe("1");
+    expect(ratings[0].job.title).toBe("Backend Dev");
 
     // idempotent
-    expect(db.addFavorite(handle, "1")).toBe(true);
-    expect(db.listFavorites(handle).length).toBe(1);
+    expect(db.setRating(handle, "1", 1)).toBe(true);
+    expect(db.listRatings(handle).length).toBe(1);
 
-    db.removeFavorite(handle, "1");
-    expect(db.listFavorites(handle)).toEqual([]);
+    db.setRating(handle, "1", 0);
+    expect(db.listRatings(handle)).toEqual([]);
   });
 
-  test("test_favorites_add_unknown_job_is_404", () => {
-    // addFavorite() in api.js throws a not_found error when this is false.
-    expect(db.addFavorite(handle, "nope")).toBe(false);
+  test("test_rating_unknown_job_is_404", () => {
+    // setJobRating() in api.js throws a not_found error when this is false.
+    expect(db.setRating(handle, "nope", 1)).toBe(false);
   });
 
-  test("test_favorites_survive_delete_all_jobs", () => {
+  test("test_ratings_survive_delete_all_jobs", () => {
     db.insertJobs(handle, [makeJob({ job_number: "1", title: "Backend Dev" })]);
-    db.addFavorite(handle, "1");
+    db.setRating(handle, "1", 1);
     db.clearJobs(handle);
 
-    const favorites = db.listFavorites(handle);
-    expect(favorites.length).toBe(1);
-    expect(favorites[0].job).toBeNull();
-    expect(favorites[0].title).toBe("Backend Dev");
+    const ratings = db.listRatings(handle);
+    expect(ratings.length).toBe(1);
+    expect(ratings[0].job).toBeNull();
+    expect(ratings[0].title).toBe("Backend Dev");
   });
 
   test("test_export_json", () => {
@@ -507,6 +626,32 @@ describe("test_server.py data-behavior tests (ported against queries.js)", () =>
     const jobs = db.exportJobs(handle);
     expect(jobs.length).toBe(1);
     expect(jobs[0].job_number).toBe("1");
+  });
+
+  test("export and import preserves jobs", () => {
+    // Insert a job, then verify it survives an export/import round-trip.
+    const originalJob = jobFactory({ job_number: "TEST1", title: "Test Job" });
+    expect(db.insertJobs(handle, [originalJob])).toBe(1);
+    expect(db.countJobs(handle)).toBe(1);
+
+    // Simulate what happens after a user downloads and reopens a database:
+    // export the jobs, then clear the table and reimport via insertJobs.
+    const exported = db.exportJobs(handle);
+    expect(exported.length).toBe(1);
+    expect(exported[0].job_number).toBe("TEST1");
+
+    db.clearJobs(handle);
+    expect(db.countJobs(handle)).toBe(0);
+
+    // Reimport the exported jobs.
+    expect(db.insertJobs(handle, exported)).toBe(1);
+    expect(db.countJobs(handle)).toBe(1);
+
+    // Verify the job is intact.
+    const reimported = db.queryJobs(handle, { q: "" });
+    expect(reimported.length).toBe(1);
+    expect(reimported[0].job_number).toBe("TEST1");
+    expect(reimported[0].title).toBe("Test Job");
   });
 });
 

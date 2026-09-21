@@ -29,16 +29,24 @@
 //   -> {type: "ack", seq, inserted, error}                   one outbox job was (or wasn't) saved
 //   -> {type: "openExtensionsPage"}                         open chrome://extensions in a new tab
 //   -> {type: "getDebugSnapshots"}                           ask for the recorded debug evidence
+//   -> {type: "reset"}                                       wipe a finished run's report after "delete all jobs"
 //   <- {type: "status", status}                               status snapshot incl. outbox, pushed on every change
 //     and once immediately on connect (status.outbox carries every
 //     still-unacknowledged job, so a reconnecting tab drains exactly what it
 //     missed -- no separate "job" message type is needed).
 //   <- {type: "ping"}                                        heartbeat, every 15s
 //   <- {type: "debugSnapshots", snapshots}                   reply to getDebugSnapshots, from chrome.storage.local
+//   <- {type: "resetDone"}                                    reply to "reset", so a fire-and-forget post can confirm
 
 import { ScrapeRunner } from "./runner.js";
 
 const SEARCH_URL = "https://experiential-learning.uottawa.ca/search";
+// Size mirrors the legacy WINDOW_SIZE = "1280,900" in app/scraper/browser.py.
+// A popup has no tab strip/bookmarks bar and a read-only origin label instead
+// of an editable omnibox, which is most of what containment (see below) is
+// for -- but it stays movable/resizable/maximizable, so it doesn't need a
+// manifest change or any special-casing elsewhere.
+const PORTAL_WINDOW = { type: "popup", width: 1280, height: 900 };
 const HEARTBEAT_MS = 15_000;
 const DEBUG_SNAPSHOTS_KEY = "debugSnapshots";
 const DEBUG_SNAPSHOTS_MAX = 50;
@@ -56,10 +64,29 @@ const transport = {
 const runner = new ScrapeRunner({ storage: chrome.storage?.local, transport });
 
 let portalTabId = null;
+let portalWindowId = null;
 let portalPort = null;
 const bridgePorts = new Set();
 let sleepRequestId = 0;
 const pendingSleeps = new Map();
+
+// If the service worker restarted mid-run, clean up any leftover window.
+(async () => {
+  try {
+    const saved = await chrome.storage.session?.get("portalWindowId");
+    const windowId = saved?.portalWindowId;
+    if (windowId !== null && windowId !== undefined) {
+      try {
+        await chrome.windows.remove(windowId);
+      } catch {
+        // Already closed or other error; nothing to do.
+      }
+      await chrome.storage.session?.remove("portalWindowId");
+    }
+  } catch {
+    // Session storage unavailable; nothing to do.
+  }
+})();
 
 function pushStatus() {
   const status = runner.status();
@@ -74,6 +101,15 @@ function pushStatus() {
 
 runner.subscribe(() => pushStatus());
 
+// Safety net: close the portal window whenever the runner reaches a terminal
+// state (completed, failed, cancelled), ensuring no path can leave it open.
+runner.subscribe((status) => {
+  const terminalStates = new Set(["completed", "failed", "cancelled"]);
+  if (terminalStates.has(status.state)) {
+    closePortalWindow();
+  }
+});
+
 // -- Portal tab lifecycle ---------------------------------------------------
 
 // Resolves once the scrape tab's id is known, so a content script that
@@ -82,14 +118,40 @@ let portalTabReady = Promise.resolve();
 
 async function openPortalWindow() {
   portalTabReady = (async () => {
-    const win = await chrome.windows.create({ url: SEARCH_URL, focused: true });
+    const win = await chrome.windows.create({ url: SEARCH_URL, focused: true, ...PORTAL_WINDOW });
     const tab = win.tabs && win.tabs[0];
     portalTabId = tab ? tab.id : null;
-    // The worker can be suspended mid-run; keep the id where it survives that.
-    await chrome.storage.session?.set({ portalTabId });
+    portalWindowId = win.id ?? null;
+    // The worker can be suspended mid-run; keep both ids where they survive
+    // that (same shape as the existing portalTabId persistence below).
+    await chrome.storage.session?.set({ portalTabId, portalWindowId });
   })();
   await portalTabReady;
   runner.markWaitingForLogin();
+}
+
+async function closePortalWindow() {
+  // Safe to call multiple times, ignores "already closed" errors. The ids are
+  // dropped before the first await, so a second call that lands while this one
+  // is still running finds nothing left to close.
+  const known = portalWindowId;
+  portalTabId = null;
+  portalWindowId = null;
+  portalPort = null;
+  const windowId = known ?? (await knownPortalWindowId());
+  if (windowId === null || windowId === undefined) return;
+  portalWindowId = null;
+  try {
+    await chrome.windows.remove(windowId);
+  } catch {
+    // Already closed, tab is gone, or other error; nothing to do.
+  }
+  try {
+    await chrome.storage.session?.remove("portalTabId");
+    await chrome.storage.session?.remove("portalWindowId");
+  } catch {
+    // Session storage unavailable; nothing to do.
+  }
 }
 
 async function knownPortalTabId() {
@@ -101,16 +163,56 @@ async function knownPortalTabId() {
   return portalTabId;
 }
 
+async function knownPortalWindowId() {
+  await portalTabReady;
+  if (portalWindowId === null) {
+    const saved = await chrome.storage.session?.get("portalWindowId");
+    portalWindowId = saved?.portalWindowId ?? null;
+  }
+  return portalWindowId;
+}
+
 function handlePortalTabGone() {
   if (portalTabId === null) return;
-  portalTabId = null;
-  portalPort = null;
-  chrome.storage.session?.remove("portalTabId");
+  // Close first, then tell the runner. The port can die while the window is
+  // still open (a crashed or navigated page), and closePortalWindow is what
+  // clears the ids -- clearing them here first would leave nothing for it,
+  // or for the terminal-state safety net, to close.
+  closePortalWindow();
   runner.handleTabClosed();
 }
 
 chrome.tabs?.onRemoved.addListener((tabId) => {
   if (tabId === portalTabId) handlePortalTabGone();
+});
+
+// Once scraping (never during waiting_for_login -- see the "cancel" reply
+// handler in setUpPortalPort for why a disconnect is normal there too), the
+// portal tab must stay on the portal's own origin. Letting a stray link or
+// redirect carry it elsewhere would strand the in-page scraper with no way
+// back, so any cross-origin navigation is bounced straight to SEARCH_URL.
+chrome.tabs?.onUpdated.addListener((tabId, changeInfo) => {
+  if (tabId !== portalTabId || !changeInfo.url) return;
+  if (runner.status().state !== "scraping") return;
+  let sameOrigin = false;
+  try {
+    sameOrigin = new URL(changeInfo.url).origin === new URL(SEARCH_URL).origin;
+  } catch {
+    sameOrigin = false;
+  }
+  if (!sameOrigin) chrome.tabs.update(tabId, { url: SEARCH_URL });
+});
+
+// The scraper only ever reads job panels in-page -- it never opens a tab
+// itself -- so any tab spawned from the portal tab (a target="_blank" link,
+// window.open, etc.) is an escape hatch out of the contained window rather
+// than something the scrape needs, and can be closed on sight.
+chrome.tabs?.onCreated.addListener((tab) => {
+  if (tab.openerTabId === portalTabId) {
+    chrome.tabs.remove(tab.id).catch(() => {
+      // Already gone; nothing to do.
+    });
+  }
 });
 
 // -- Bridge injection into already-open tabs ---------------------------------
@@ -211,9 +313,11 @@ function handlePortalMessage(message, port) {
       break;
     case "finished":
       runner.handleFinished(message);
+      closePortalWindow();
       break;
     case "error":
       runner.handleError(message);
+      closePortalWindow();
       break;
     case "sleep":
       handleSleepRequest(message, port);
@@ -307,9 +411,29 @@ async function handleBridgeMessage(message, port) {
           // The portal tab is already gone; handlePortalTabGone will follow.
         }
       }
+      // Post the cancel to the portal FIRST, close the window SECOND. Doing
+      // it the other way round makes chrome.tabs.onRemoved fire before the
+      // runner has been told this is a cancel, so handleTabClosed would
+      // report "browser window was closed" instead of the cancel the user
+      // actually asked for.
+      await closePortalWindow();
       break;
     case "getStatus":
       port.postMessage({ type: "status", status: runner.status() });
+      break;
+    case "reset":
+      runner.reset();
+      // Clear the debug bundle too, so it never carries evidence for a
+      // scrape whose jobs were just wiped out of the database.
+      try {
+        await chrome.storage.local?.remove(DEBUG_SNAPSHOTS_KEY);
+      } catch (exc) {
+        console.warn("[CoopJobs] could not clear debug snapshots on reset:", exc);
+      }
+      port.postMessage({ type: "status", status: runner.status() });
+      // The web app posts "reset" fire-and-forget; reply so it can confirm
+      // the reset actually happened rather than just hoping the fire landed.
+      port.postMessage({ type: "resetDone" });
       break;
     case "ack":
       runner.ack(message.seq, { inserted: message.inserted, error: message.error });

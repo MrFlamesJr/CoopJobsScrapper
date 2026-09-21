@@ -14,6 +14,13 @@ const INCOMPLETE_MAIN = {
   interrupted: "Scrape interrupted",
 };
 
+/** Plain phrase for a run's abort reason; omitted (undefined) for "failed",
+ * since the error message elsewhere already says what happened. */
+const REASON_TEXT = {
+  browser_closed: "browser window was closed",
+  user_cancelled: "you stopped it",
+};
+
 function plural(n, word) {
   return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 }
@@ -63,10 +70,11 @@ function describe(status) {
   // state is back to "idle" — after a restart there is nothing else left.
   const incomplete = incompleteRun(status);
   if (incomplete) {
+    const reasonText = REASON_TEXT[incomplete.reason];
     return {
       tone: "warn",
       main: INCOMPLETE_MAIN[incomplete.state],
-      sub: `${plural(jobCount, "job")} · may be incomplete`,
+      sub: `${plural(jobCount, "job")} · may be incomplete${reasonText ? ` · ${reasonText}` : ""}`,
       warn: true,
     };
   }
@@ -80,7 +88,7 @@ function describe(status) {
   }
   // idle or completed
   if (jobCount === 0) {
-    return { tone: "idle", main: "No jobs yet", sub: "Click to run the scraper" };
+    return { tone: "idle", main: "No jobs yet", sub: "Scrape or open a database" };
   }
   const last = relativeTime(status?.last_scraped_at);
   return {
@@ -90,7 +98,7 @@ function describe(status) {
   };
 }
 
-export default function StatusChip({ status, onClick }) {
+export default function StatusChip({ status, onClick, chipRef }) {
   const state = status?.state || "idle";
   const view = describe(status);
   // Same maths as the dialog's Total bar; while the page count isn't known
@@ -108,9 +116,15 @@ export default function StatusChip({ status, onClick }) {
 
   return (
     <div className="status-chip-block">
-      <span className="status-chip__section">Scraper</span>
+      <span className="status-chip__section">Data</span>
 
-      <button type="button" className="status-chip" onClick={onClick} aria-haspopup="dialog">
+      <button
+        type="button"
+        ref={chipRef}
+        className="status-chip"
+        onClick={onClick}
+        aria-haspopup="dialog"
+      >
         {view.spinner ? (
           <Spinner tone={view.spinner} size={12} />
         ) : (

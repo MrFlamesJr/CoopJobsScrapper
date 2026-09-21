@@ -1,15 +1,11 @@
 import { useEffect, useRef } from "react";
 import FacetGroup from "./FacetGroup.jsx";
 import StatusChip from "./StatusChip.jsx";
+import SortStack from "./SortStack.jsx";
+import RatingFilter from "./RatingFilter.jsx";
+import InfoDot from "./InfoDot.jsx";
 import { FACET_FIELDS } from "../facetFields.js";
 import "./Sidebar.css";
-
-const SORT_OPTIONS = [
-  { value: "employer", label: "Employer" },
-  { value: "deadline", label: "Deadline" },
-  { value: "title", label: "Title" },
-  { value: "newest", label: "Newest" },
-];
 
 // Small stroke highlighter/marker pen: a pen barrel touching down on the mark
 // it left. currentColor, so the button's own color drives it.
@@ -32,11 +28,11 @@ function HighlighterIcon() {
 
 const WIDTH_KEY = "sidebarWidth";
 const DEFAULT_WIDTH = 260;
-const MIN_WIDTH = 220;
+const MIN_WIDTH = DEFAULT_WIDTH;
 
 // Never wider than half the window, so the grid keeps room on small screens.
 function clampWidth(px) {
-  const max = Math.min(520, window.innerWidth / 2);
+  const max = Math.min(560, window.innerWidth / 2);
   return Math.round(Math.max(MIN_WIDTH, Math.min(px, max)));
 }
 
@@ -57,8 +53,10 @@ function saveWidth(px) {
 export default function Sidebar({
   q,
   onQChange,
-  sort,
-  onSortChange,
+  sorts,
+  onSortsChange,
+  ratingFilter,
+  onRatingFilterChange,
   deadlineMode,
   onDeadlineModeChange,
   facets,
@@ -68,10 +66,12 @@ export default function Sidebar({
   onClearFilters,
   status,
   onOpenScraper,
+  statusChipRef,
   isOpen,
   onCloseMobile,
   highlightOn,
   onToggleHighlight,
+  onOpenAbout,
 }) {
   const draggingRef = useRef(false);
 
@@ -84,7 +84,15 @@ export default function Sidebar({
       // Storage can be unavailable; fall back to the default width.
     }
     const px = Number(saved);
-    if (px > 0) applyWidth(clampWidth(px));
+    if (px > 0) {
+      const clamped = clampWidth(px);
+      applyWidth(clamped);
+      // If the saved value was below the new minimum, re-save the clamped value
+      // so it doesn't sit stale in storage.
+      if (clamped !== px) {
+        saveWidth(clamped);
+      }
+    }
   }, []);
 
   function handleResizeStart(e) {
@@ -117,7 +125,15 @@ export default function Sidebar({
       {isOpen && <div className="sidebar-backdrop" onClick={onCloseMobile} />}
       <aside className={`sidebar ${isOpen ? "sidebar--open" : ""}`}>
         <div className="sidebar__scroll">
-          <div className="sidebar__brand">Co-op Jobs</div>
+          <div className="sidebar__brand-row">
+            <span className="sidebar__brand">Co-op Jobs</span>
+            <InfoDot
+              className="sidebar__info"
+              label="About"
+              tip="About the web app"
+              onClick={() => onOpenAbout?.()}
+            />
+          </div>
 
           <div className="sidebar__search-row">
             <input
@@ -139,16 +155,22 @@ export default function Sidebar({
             </button>
           </div>
 
-          <label className="sidebar__field">
-            <span className="sidebar__field-label">Sort by</span>
-            <select value={sort} onChange={(e) => onSortChange(e.target.value)}>
-              {SORT_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="sidebar__block">
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <span className="sidebar__field-label">Sort by</span>
+              <InfoDot
+                className="sidebar__info"
+                label="Sort by"
+                tip="Add sorts and drag to reorder."
+              />
+            </div>
+            <SortStack sorts={sorts} onChange={onSortsChange} />
+          </div>
+
+          <div className="sidebar__block">
+            <span className="sidebar__field-label">Ratings</span>
+            <RatingFilter value={ratingFilter} onChange={onRatingFilterChange} />
+          </div>
 
           <label
             className="sidebar__toggle"
@@ -189,7 +211,7 @@ export default function Sidebar({
         </div>
 
         <div className="sidebar__footer">
-          <StatusChip status={status} onClick={onOpenScraper} />
+          <StatusChip status={status} onClick={onOpenScraper} chipRef={statusChipRef} />
         </div>
 
         <div

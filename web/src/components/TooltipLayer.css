@@ -21,7 +21,7 @@
   /* Long text (the scraper's stop warning) wraps instead of running off. */
   width: max-content;
   max-width: 260px;
-  white-space: normal;
+  white-space: pre-line;
   pointer-events: none;
   opacity: 0;
   transition: opacity var(--transition-fast);

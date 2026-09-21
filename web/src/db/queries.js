@@ -70,6 +70,40 @@ const SORTS = {
   newest: "id DESC",
 };
 
+// The fields the UI offers for layered (multi-level) sorting, in queryJobs's
+// `sorts` option.
+export const SORT_FIELDS = ["employer", "title", "location", "deadline", "added", "myrating"];
+
+// Column expression per SORT_FIELDS entry, for one `{ field, dir }` level.
+const SORT_COLUMNS = {
+  employer: "employer",
+  title: "title",
+  location: "location",
+  added: "id",
+  deadline: "deadline_date",
+  myrating: "COALESCE((SELECT f.rating FROM favorites f WHERE f.job_number = jobs.job_number), 0)",
+};
+
+/** Builds an ORDER BY clause from a `sorts` array of { field, dir }. Unknown
+ * fields are ignored. `deadline` always emits "deadline_date IS NULL," first
+ * so undated jobs sort last regardless of direction. `myrating` inverts the
+ * direction since higher ratings should sort first (liked before neutral before
+ * disliked). `title ASC, id ASC` is always appended as a final tiebreak. */
+function buildOrderBy(sorts) {
+  const parts = [];
+  for (const { field, dir } of sorts) {
+    const column = SORT_COLUMNS[field];
+    if (!column) continue;
+    let direction = dir === "desc" ? "DESC" : "ASC";
+    if (field === "deadline") parts.push("deadline_date IS NULL");
+    // Invert direction for myrating so "asc" (Liked first) orders by DESC
+    if (field === "myrating") direction = direction === "ASC" ? "DESC" : "ASC";
+    parts.push(`${column} ${direction}`);
+  }
+  parts.push("title ASC, id ASC");
+  return parts.join(", ");
+}
+
 /** Run schema.sql's statements against a fresh handle. Mirrors
  * conn.executescript(): schema.sql has no semicolons except at statement
  * boundaries, so a naive split is safe here. */
@@ -80,6 +114,18 @@ export function initDb(handle, schemaSql) {
     .filter(Boolean);
   for (const statement of statements) {
     handle.run(statement, []);
+  }
+  migrateRatingColumn(handle);
+}
+
+/** Older/imported .db files (including the Python app's) predate the
+ * `rating` column on `favorites`; add it so every existing row counts as
+ * liked, matching the old heart-only model. */
+function migrateRatingColumn(handle) {
+  const columns = handle.exec("PRAGMA table_info(favorites)", []);
+  const hasRating = columns.some((column) => column.name === "rating");
+  if (!hasRating) {
+    handle.run("ALTER TABLE favorites ADD COLUMN rating INTEGER NOT NULL DEFAULT 1", []);
   }
 }
 
@@ -135,6 +181,23 @@ export function insertJobs(handle, jobs) {
 export function countJobs(handle) {
   const rows = handle.exec("SELECT COUNT(*) AS n FROM jobs", []);
   return rows[0].n;
+}
+
+/** Liked/disliked counts for the triage stats in the top bar. Joined against
+ * jobs: favorites deliberately outlive the jobs table (see schema.sql), so a
+ * rating for a job that is no longer scraped must not count toward the
+ * triage total. */
+export function ratingCounts(handle) {
+  const rows = handle.exec(
+    "SELECT f.rating AS rating, COUNT(*) AS n FROM favorites f JOIN jobs j ON j.job_number = f.job_number GROUP BY f.rating",
+    [],
+  );
+  const counts = { liked: 0, disliked: 0 };
+  for (const row of rows) {
+    if (row.rating === 1) counts.liked = row.n;
+    else if (row.rating === -1) counts.disliked = row.n;
+  }
+  return counts;
 }
 
 export function lastScrapedAt(handle) {
@@ -249,12 +312,16 @@ function addDays(dateStr, days) {
 }
 
 /**
- * options: { q, filters: {field: [values]}, deadline, sort, today }
+ * options: { q, filters: {field: [values]}, deadline, sort, sorts, rating, today }
  * `today`, when given, is a "YYYY-MM-DD" string (the JS equivalent of the
  * Python `date` object the original takes) — injectable for tests.
+ * `sorts`, when non-empty, is an array of { field, dir } layered sort levels
+ * and takes over from the single `sort` string (see buildOrderBy).
+ * `rating` is null | "liked" | "hide_disliked".
  */
 export function queryJobs(handle, options = {}) {
-  const { q = "", filters = null, deadline = null, sort = "deadline", today = null } = options;
+  const { q = "", filters = null, deadline = null, sort = "deadline", sorts = null, rating = null, today = null } =
+    options;
 
   const where = [];
   const params = [];
@@ -288,7 +355,13 @@ export function queryJobs(handle, options = {}) {
     params.push(todayStr);
   }
 
-  const orderBy = SORTS[sort] || SORTS.deadline;
+  if (rating === "liked") {
+    where.push("job_number IN (SELECT job_number FROM favorites WHERE rating = 1)");
+  } else if (rating === "hide_disliked") {
+    where.push("job_number NOT IN (SELECT job_number FROM favorites WHERE rating = -1)");
+  }
+
+  const orderBy = sorts && sorts.length ? buildOrderBy(sorts) : SORTS[sort] || SORTS.deadline;
   const columns = words.length ? [...COVER_COLUMNS, ...MATCH_EXTRA_COLUMNS] : COVER_COLUMNS;
   let sql = `SELECT ${columns.join(", ")} FROM jobs`;
   if (where.length) sql += ` WHERE ${where.join(" AND ")}`;
@@ -376,12 +449,12 @@ export function getLastRun(handle) {
   return run && typeof run === "object" && !Array.isArray(run) ? run : null;
 }
 
-/** Saved jobs, newest first. `job` is the cover object, or null while the job
+/** Rated jobs, newest first. `job` is the cover object, or null while the job
  * is missing from the jobs table (cleared or dropped by a re-scrape). */
-export function listFavorites(handle) {
+export function listRatings(handle) {
   const columns = COVER_COLUMNS.map((column) => `j.${column} AS job_${column}`).join(", ");
   const rows = handle.exec(
-    `SELECT f.job_number, f.title, f.employer, f.created_at, ${columns}
+    `SELECT f.job_number, f.title, f.employer, f.rating, f.created_at, ${columns}
      FROM favorites f LEFT JOIN jobs j ON j.job_number = f.job_number
      ORDER BY f.created_at DESC, f.rowid DESC`,
     [],
@@ -396,31 +469,32 @@ export function listFavorites(handle) {
       job_number: row.job_number,
       title: row.title,
       employer: row.employer,
+      rating: row.rating,
       created_at: row.created_at,
       job,
     };
   });
 }
 
-/** Save a job, keeping a title/employer snapshot. Idempotent. Returns false
- * when no job has that number. */
-export function addFavorite(handle, jobNumber) {
+/** Sets a job's rating, keeping a title/employer snapshot. `rating` is 1
+ * (liked), -1 (disliked) or 0 (clears the rating, deleting the row). Idempotent.
+ * Returns false when no job has that number (0 always returns true, since a
+ * delete doesn't need the jobs row to exist). */
+export function setRating(handle, jobNumber, rating) {
   if (!jobNumber) return false;
+  if (rating === 0) {
+    handle.run("DELETE FROM favorites WHERE job_number = ?", [jobNumber]);
+    return true;
+  }
   const rows = handle.exec("SELECT title, employer FROM jobs WHERE job_number = ?", [jobNumber]);
   if (!rows.length) return false;
   const { title, employer } = rows[0];
-  handle.run("INSERT OR IGNORE INTO favorites (job_number, title, employer) VALUES (?, ?, ?)", [
-    jobNumber,
-    title,
-    employer,
-  ]);
+  handle.run(
+    `INSERT INTO favorites (job_number, title, employer, rating) VALUES (?, ?, ?, ?)
+     ON CONFLICT(job_number) DO UPDATE SET rating = excluded.rating`,
+    [jobNumber, title, employer, rating],
+  );
   return true;
-}
-
-/** Unsave a job. Returns false when it wasn't a favorite. */
-export function removeFavorite(handle, jobNumber) {
-  const result = handle.run("DELETE FROM favorites WHERE job_number = ?", [jobNumber]);
-  return result.changes > 0;
 }
 
 export function exportJobs(handle) {

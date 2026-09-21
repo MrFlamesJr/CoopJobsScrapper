@@ -7,7 +7,7 @@
 // carried across the page/content-script boundary by the bridge script):
 //   app -> ext: {source:"coopjobs-app", type:"ping"}
 //   ext -> app: {source:"coopjobs-ext", type:"pong", extensionVersion, protocolVersion}
-//   app -> ext: {source:"coopjobs-app", type:"start"|"cancel"|"getStatus"}
+//   app -> ext: {source:"coopjobs-app", type:"start"|"cancel"|"getStatus"|"reset"}
 //   app -> ext: {source:"coopjobs-app", type:"ack", seq, inserted, error}
 //   ext -> app: {source:"coopjobs-app", type:"status", status}   (status.outbox carries unacked jobs)
 //   ext -> app: {source:"coopjobs-ext", type:"ping"}              heartbeat, every ~15s
@@ -200,6 +200,41 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
     post({ type: "getStatus" });
   }
 
+  /** Wipes a finished run's report on the extension side (last_run/
+   * finished_at/counters/events plus the stored debug snapshots), so deleting
+   * all jobs doesn't leave a stale "Scrape complete" report behind (see
+   * api.js's deleteAllJobs). Resolves once the extension replies with
+   * `resetDone`, or after a short timeout on an older extension that doesn't
+   * know this message (there is no required-protocol-version bump for it) --
+   * same one-shot-listener shape as getDebugSnapshots(). */
+  function reset() {
+    return new Promise((resolve) => {
+      if (!win) {
+        resolve();
+        return;
+      }
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        win.removeEventListener("message", onReply);
+        clearTimeout(timer);
+        resolve();
+      };
+      function onReply(event) {
+        if (event.source !== win) return;
+        if (win.location && event.origin !== win.location.origin) return;
+        const data = event.data;
+        if (!data || data.source !== "coopjobs-ext" || data.type !== "resetDone") return;
+        finish();
+      }
+      const timer = setTimeout(finish, 2000);
+      win.addEventListener("message", onReply);
+      ensureListening();
+      post({ type: "reset" });
+    });
+  }
+
   /** Asks the extension to open the browser's extensions page in a new tab.
    * Only the extension can: chrome:// URLs are off limits to a web page. Does
    * nothing when no extension is there to ask. */
@@ -246,6 +281,7 @@ export function createExtensionBridge({ win = defaultWindow(), db = dbClient } =
     getConnectionState: () => connection,
     start,
     cancel,
+    reset,
     requestStatus,
     openExtensionsPage,
     getDebugSnapshots,

@@ -1,5 +1,5 @@
 import DeadlineChip from "./DeadlineChip.jsx";
-import FavoriteButton from "./FavoriteButton.jsx";
+import RatingButtons from "./RatingButtons.jsx";
 import JobDetails from "./JobDetails.jsx";
 import JobNumber from "./JobNumber.jsx";
 import { Highlight } from "../highlight.jsx";
@@ -8,10 +8,9 @@ import "./JobPanel.css";
 /**
  * The details panel of an expanded `JobCard`. `JobGrid` places it after the
  * cards of its card's row and it spans the whole row, so it lands directly
- * under that row — and it zooms out of its card as it opens (viewTransition.js
- * names the pair, JobPanel.css animates it).
+ * under that row. The panel simply appears in place with no animation.
  */
-export default function JobPanel({ job, saved, onToggleFavorite, onClose }) {
+export default function JobPanel({ job, rating, onRate, onClose }) {
   const handleKeyDown = (e) => {
     if (e.key === "Escape") {
       e.stopPropagation();
@@ -33,11 +32,7 @@ export default function JobPanel({ job, saved, onToggleFavorite, onClose }) {
         <Highlight text={job.employer || "Unknown employer"} />
       </span>
       <DeadlineChip deadline_date={job.deadline_date} deadline_text={job.deadline_text} />
-      <FavoriteButton
-        jobNumber={job.job_number}
-        saved={saved}
-        onToggle={() => onToggleFavorite?.(job)}
-      />
+      <RatingButtons jobNumber={job.job_number} rating={rating} onRate={onRate} />
     </>
   );
 

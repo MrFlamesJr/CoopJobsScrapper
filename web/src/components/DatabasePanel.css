@@ -1,0 +1,113 @@
+.database-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.database-panel__action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.database-panel__button {
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+.database-panel__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.database-panel__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.database-panel__link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
+  text-decoration: underline;
+}
+
+.database-panel__file-input {
+  display: none;
+}
+
+.database-panel__error {
+  margin: 0;
+  color: var(--tone-today-fg);
+  font-size: 0.85rem;
+}
+
+/* "Open <file>?" confirmation, opened by "Open database". Same shape as the
+   dialog it replaced in TopBar.css, minus the slide-to-confirm -- the
+   database is always empty by the time this button is even enabled, so
+   there is nothing destructive left to gate behind a deliberate drag. */
+.database-panel__confirm-dialog {
+  width: min(400px, calc(100vw - 2.5rem));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow-2);
+}
+
+.database-panel__confirm-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.database-panel__confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.database-panel__confirm-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.database-panel__confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.database-panel__confirm-cancel {
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+.database-panel__confirm-open {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.database-panel__confirm-open:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

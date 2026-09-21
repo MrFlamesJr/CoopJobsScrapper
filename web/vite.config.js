@@ -22,6 +22,9 @@ function devLogSink() {
 }
 
 export default defineConfig({
+  // Relative base so the built site works from any subpath (GitHub Pages
+  // serves project sites at /<repo>/).
+  base: "./",
   plugins: [react(), devLogSink()],
   // No more Flask backend to proxy /api to: jobs/facets/favorites/export
   // come from the in-browser SQLite worker (src/db) and the scraper talks to

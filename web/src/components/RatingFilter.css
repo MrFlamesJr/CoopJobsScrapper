@@ -1,0 +1,40 @@
+.rating-filter {
+  display: flex;
+  align-items: stretch;
+  background: var(--sidebar-inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.rating-filter__segment {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  padding: 0.3rem 0.65rem;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.rating-filter__segment svg {
+  width: 14px;
+  height: 14px;
+}
+
+.rating-filter__segment:hover {
+  color: var(--text);
+}
+
+.rating-filter__segment--active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

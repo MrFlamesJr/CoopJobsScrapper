@@ -17,12 +17,50 @@
   padding: 1.1rem 1rem;
 }
 
+.sidebar__brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
 .sidebar__brand {
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  margin-bottom: 1rem;
   color: var(--text);
+  /* Collapse line box to em box to align the button against the glyphs'
+     optical centre, not the line box's (which includes descender space).
+     Without this, normal line-height's asymmetric half-leading makes the
+     text's optical centre sit above the geometric centre. */
+  line-height: 1;
+}
+
+/* Circled-info trigger for the About modal: muted until hovered/focused, so
+   it doesn't compete with the brand text. */
+.sidebar__info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: var(--muted);
+  transition: color var(--transition-fast);
+}
+
+.sidebar__info svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sidebar__info:hover,
+.sidebar__info:focus-visible {
+  color: var(--accent);
 }
 
 /* Search box + highlighter toggle share a row: the native × sits in the
@@ -88,6 +126,15 @@
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* Same rhythm as .sidebar__field, for the sort stack and rating filter,
+   which aren't single form fields so don't use a <label>. */
+.sidebar__block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.85rem;
 }
 
 .sidebar__field select {
@@ -182,7 +229,7 @@
   content: "";
   position: absolute;
   inset: 0 2px;
-  background: transparent;
+  background: var(--border);
   transition: background var(--transition-fast);
 }
 

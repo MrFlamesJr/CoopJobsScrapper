@@ -146,9 +146,12 @@ export default function SlideToConfirm({ label, busyLabel, busy, onConfirm }) {
   };
 
   return (
-    <div ref={trackRef} className="slide-to-confirm" style={{ "--pos": 0 }}>
+    <div ref={trackRef} className="slide-to-confirm" style={{ "--pos": 0, "--thumb": "34px" }}>
       <span className="slide-to-confirm__fill" aria-hidden="true" />
       <span className="slide-to-confirm__label">{busy ? busyLabel : label}</span>
+      <span className="slide-to-confirm__label slide-to-confirm__label--on-fill" aria-hidden="true">
+        {busy ? busyLabel : label}
+      </span>
       <div
         ref={thumbRef}
         className="slide-to-confirm__thumb"

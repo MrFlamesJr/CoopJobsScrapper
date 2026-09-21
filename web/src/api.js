@@ -49,14 +49,21 @@ function withAbort(promise, signal) {
 }
 
 export function fetchJobs(params, signal) {
-  const { q, sort, deadline, ...rest } = params || {};
+  const { q, sort, sorts, rating, deadline, ...rest } = params || {};
   const filters = {};
   for (const [field, values] of Object.entries(rest)) {
     if (Array.isArray(values) && values.length > 0) filters[field] = values;
   }
 
   const promise = dbClient
-    .queryJobs({ q: q || "", filters, deadline: deadline || null, sort: sort || "deadline" })
+    .queryJobs({
+      q: q || "",
+      filters,
+      deadline: deadline || null,
+      sort: sort || "deadline",
+      sorts: sorts || null,
+      rating: rating || null,
+    })
     .then(async (jobs) => {
       const total = await dbClient.countJobs();
       return { jobs, total };
@@ -75,29 +82,34 @@ export function fetchFacets(signal) {
   return withAbort(dbClient.getFacets(), signal);
 }
 
+/** Liked/disliked counts for the top bar's triage stats. */
+export function fetchStats(signal) {
+  return withAbort(dbClient.ratingCounts(), signal);
+}
+
 export async function deleteAllJobs() {
   const deleted = await dbClient.countJobs();
   await dbClient.clearJobs();
+  try {
+    await getExtensionBridge().reset();
+  } catch {
+    // Best-effort: wipes the stale "Scrape complete" report, but a missing/
+    // failing reset() must never block clearing the local database.
+  }
   return { deleted };
 }
 
-// Every favorites endpoint answers with the full, fresh list, so callers can
-// just replace their state with `.favorites` from any response.
-export function fetchFavorites(signal) {
-  return withAbort(dbClient.listFavorites().then((favorites) => ({ favorites })), signal);
+// Every ratings endpoint answers with the full, fresh list, so callers can
+// just replace their state with `.ratings` from any response.
+export function fetchRatings(signal) {
+  return withAbort(dbClient.listRatings().then((ratings) => ({ ratings })), signal);
 }
 
-export async function addFavorite(jobNumber) {
-  const ok = await dbClient.addFavorite(jobNumber);
+export async function setJobRating(jobNumber, rating) {
+  const ok = await dbClient.setRating(jobNumber, rating);
   if (!ok) throw notFoundError("No job with that number.");
-  const favorites = await dbClient.listFavorites();
-  return { favorites };
-}
-
-export async function removeFavorite(jobNumber) {
-  await dbClient.removeFavorite(jobNumber);
-  const favorites = await dbClient.listFavorites();
-  return { favorites };
+  const ratings = await dbClient.listRatings();
+  return { ratings };
 }
 
 // --- Scraper -------------------------------------------------------------
@@ -113,8 +125,27 @@ export async function removeFavorite(jobNumber) {
 // it): "cancelling" still counts as running.
 const RUNNING_STATES = new Set(["starting", "waiting_for_login", "scraping", "cancelling"]);
 
-function databaseNotEmptyError() {
-  const err = new Error("Clear the existing jobs before scraping again.");
+// Default idle status object with all report fields explicitly set to null/0
+// so nothing carries over after a delete. This is merged into the status by
+// refreshScraperStatus when resetting to idle.
+const DEFAULT_IDLE_STATUS = {
+  state: "idle",
+  message: null,
+  started_at: null,
+  finished_at: null,
+  pages_completed: 0,
+  total_pages: null,
+  jobs_saved: 0,
+  retries: 0,
+  failed_jobs: 0,
+  anomalies: 0,
+  events: [],
+  current: null,
+  reason: null,
+};
+
+function databaseNotEmptyError(message = "Clear the existing jobs before scraping again.") {
+  const err = new Error(message);
   err.code = "database_not_empty";
   err.status = 409;
   return err;
@@ -128,6 +159,7 @@ function lastRunRecordFromStatus(status) {
     pages_completed: status.pages_completed ?? 0,
     total_pages: status.total_pages ?? null,
     jobs_saved: status.jobs_saved ?? 0,
+    reason: status.reason ?? null,
   };
 }
 
@@ -177,9 +209,16 @@ export function subscribeScraperStatus(callback) {
 
 /** One-off refresh for state changes the extension never announces (e.g.
  * "Clear all jobs" changes job_count without any scraper event) -- re-reads
- * the database facts around whatever runner state the caller already has. */
+ * the database facts around whatever runner state the caller already has.
+ * When resetting to idle (as after deleteAll), ensures all report fields are
+ * explicitly null/0 so nothing carries over from a previous run. */
 export function refreshScraperStatus(currentStatus) {
-  return enrichScraperStatus(currentStatus || { state: "idle" });
+  let baseStatus = currentStatus || { ...DEFAULT_IDLE_STATUS };
+  // If resetting to idle, merge in defaults to clear stale report fields.
+  if (currentStatus && currentStatus.state === "idle") {
+    baseStatus = { ...DEFAULT_IDLE_STATUS, ...currentStatus };
+  }
+  return enrichScraperStatus(baseStatus);
 }
 
 /** Checks whether the extension is installed/reachable and speaks a
@@ -205,6 +244,7 @@ export async function startScraper() {
     pages_completed: 0,
     total_pages: null,
     jobs_saved: 0,
+    reason: null,
   });
   getExtensionBridge().start();
   return { state: "starting", message: "Starting the scraper browser.", started_at: startedAt };
@@ -254,6 +294,8 @@ export async function downloadDatabase() {
 /** Replaces the in-browser database with the contents of `file` (a .db file
  * picked by the user, e.g. one downloaded from the Python app). */
 export async function importDatabase(file) {
+  const count = await dbClient.countJobs();
+  if (count > 0) throw databaseNotEmptyError("Delete all jobs before opening another database.");
   const buffer = await file.arrayBuffer();
   await dbClient.importDbFile(new Uint8Array(buffer));
 }

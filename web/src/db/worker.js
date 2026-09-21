@@ -13,6 +13,9 @@ import schemaSql from "./schema.sql?raw";
 import * as queries from "./queries.js";
 
 const DB_FILENAME = "coopjobs.db";
+// How the SAH pool names the file internally once it is open: it runs every
+// filename through `new URL(name, "file://localhost/").pathname`.
+const DB_PATH = `/${DB_FILENAME}`;
 
 let sqlite3 = null;
 let poolUtil = null;
@@ -105,6 +108,7 @@ async function ensureReady() {
 const QUERY_METHODS = {
   insertJobs: (jobs) => queries.insertJobs(handle, jobs),
   countJobs: () => queries.countJobs(handle),
+  ratingCounts: () => queries.ratingCounts(handle),
   lastScrapedAt: () => queries.lastScrapedAt(handle),
   queryJobs: (options) => queries.queryJobs(handle, options),
   getJob: (jobId) => queries.getJob(handle, jobId),
@@ -112,15 +116,23 @@ const QUERY_METHODS = {
   clearJobs: () => queries.clearJobs(handle),
   setLastRun: (run) => queries.setLastRun(handle, run),
   getLastRun: () => queries.getLastRun(handle),
-  listFavorites: () => queries.listFavorites(handle),
-  addFavorite: (jobNumber) => queries.addFavorite(handle, jobNumber),
-  removeFavorite: (jobNumber) => queries.removeFavorite(handle, jobNumber),
+  listRatings: () => queries.listRatings(handle),
+  setRating: (jobNumber, rating) => queries.setRating(handle, jobNumber, rating),
   exportJobs: () => queries.exportJobs(handle),
 };
 
 // Methods that operate on the raw db file rather than through queries.js.
 const FILE_METHODS = {
   exportDbFile: () => {
+    // Checkpoint the WAL to ensure all data is in the main db file before
+    // exporting. The sqlite3_js_db_export takes the raw C pointer and
+    // returns only what's in the file at that moment; without a checkpoint,
+    // recent writes might still be in the log, missing from the export.
+    try {
+      handle.run("PRAGMA wal_checkpoint(RESTART)", []);
+    } catch {
+      // WAL might not be enabled; that's fine, proceed with export.
+    }
     // Raw, whole-file export -- works for any live sqlite3 connection,
     // OPFS-backed or not. Takes the raw C pointer, not the JS wrapper.
     return sqlite3.capi.sqlite3_js_db_export(db.pointer);
@@ -136,7 +148,12 @@ const FILE_METHODS = {
       }
       db = null;
     }
-    await poolUtil.importDb(DB_FILENAME, data);
+    // DB_PATH, not DB_FILENAME: the pool keys its slots by the normalized
+    // path the VFS registers when the db is opened ("/coopjobs.db"), but
+    // importDb() looks the name up verbatim. Passing the bare name finds no
+    // match, so it imports into a second, unused slot and the re-opened db is
+    // still the old, empty one -- an import that silently loaded nothing.
+    await poolUtil.importDb(DB_PATH, data);
     // Re-open on top of the imported file and re-run schema.sql: every
     // statement in it is CREATE ... IF NOT EXISTS, so this is a no-op against
     // an already-matching database and only fills in the gaps for an older one.

@@ -1,6 +1,6 @@
 /* Spans the full grid row directly under its card's row (see JobGrid.css).
-   Opening and closing is a View Transition: the card's box grows into this
-   one and back (the `vt-morph` rules at the bottom of this file). */
+   It simply appears and disappears in place: there is no open/close
+   animation. */
 .job-panel {
   grid-column: 1 / -1;
   display: grid;
@@ -19,28 +19,6 @@
 .job-panel__inner {
   min-height: 0;
   overflow: clip;
-}
-
-/* Without View Transitions the panel opens on its own, by animating its single
-   grid row from 0fr to 1fr. Running both would capture the panel at near-zero
-   height and the zoom would land on nothing. */
-@supports not (view-transition-name: none) {
-  .job-panel {
-    animation: job-panel-open 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-
-  @keyframes job-panel-open {
-    from {
-      grid-template-rows: 0fr;
-      opacity: 0;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .job-panel {
-      animation: none;
-    }
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -118,76 +96,3 @@
   color: var(--muted);
 }
 
-/* ---------- The zoom (see viewTransition.js) ---------- */
-
-/* Every card and panel near the viewport is named for the length of a toggle,
-   so they all slide to their new places at one speed. */
-::view-transition-group(*) {
-  animation-duration: 180ms;
-  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-/* Clicks go to the real cards underneath while the 200ms plays. */
-::view-transition {
-  pointer-events: none;
-}
-
-/* Nothing else on the page is changing, so the new page is shown at once
-   instead of cross-fading with the old one — that is what keeps a toggle
-   feeling instant. */
-::view-transition-old(root) {
-  display: none;
-}
-
-::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
-}
-
-/* The card ↔ panel pair. The group grows from one box to the other; the two
-   snapshots fill it and cross-fade. A card and a panel have very different
-   aspect ratios, so `cover` from the top-left corner (where both start with
-   the job number and title) distorts far less than stretching would. */
-::view-transition-group(vt-morph) {
-  animation-duration: 200ms;
-  overflow: clip;
-  border-radius: var(--radius-lg);
-}
-
-::view-transition-old(vt-morph),
-::view-transition-new(vt-morph) {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: top left;
-}
-
-/* Sticky chrome is named too, so the cards sliding under it pass behind it
-   instead of over it. It never moves, so it never animates. */
-.app-topbar {
-  view-transition-name: chrome-app-topbar;
-}
-
-.top-bar {
-  view-transition-name: chrome-top-bar;
-}
-
-.filter-chips-bar {
-  view-transition-name: chrome-chips;
-}
-
-::view-transition-old(chrome-app-topbar),
-::view-transition-old(chrome-top-bar),
-::view-transition-old(chrome-chips) {
-  display: none;
-}
-
-::view-transition-group(chrome-app-topbar),
-::view-transition-group(chrome-top-bar),
-::view-transition-group(chrome-chips),
-::view-transition-new(chrome-app-topbar),
-::view-transition-new(chrome-top-bar),
-::view-transition-new(chrome-chips) {
-  animation: none;
-  mix-blend-mode: normal;
-}

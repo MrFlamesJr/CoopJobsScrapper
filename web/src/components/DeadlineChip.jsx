@@ -18,8 +18,8 @@ export default function DeadlineChip({ deadline_date, deadline_text }) {
   return (
     <span
       className={`deadline-chip deadline-chip--${tone}`}
-      data-tooltip={exact || undefined}
-      aria-label={exact ? `${spoken} — ${exact}` : undefined}
+      title={exact || undefined}
+      aria-label={exact ? `${spoken}, ${exact}` : undefined}
     >
       {label}
     </span>

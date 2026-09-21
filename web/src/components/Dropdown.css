@@ -1,0 +1,83 @@
+.dropdown__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
+  height: 26px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.dropdown__trigger:hover,
+.dropdown__trigger:focus-visible {
+  color: var(--accent);
+  border-color: var(--border-hover);
+}
+
+.dropdown__trigger svg {
+  width: 10px;
+  height: 10px;
+  transition: transform var(--transition-fast);
+  flex: 0 0 auto;
+}
+
+.dropdown__trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.dropdown__menu {
+  position: fixed;
+  z-index: 80;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  font-size: 0.74rem;
+  /* The cap itself is set inline from the room the menu actually has. */
+  overflow-y: auto;
+}
+
+/* Takes the slack so the chevron stays pinned right, and long labels clip
+   instead of widening the trigger. */
+.dropdown__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.dropdown__option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  height: 26px;
+  padding: 0 0.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  border-radius: calc(var(--radius-sm) - 1px);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.dropdown__option:hover,
+.dropdown__option--highlighted {
+  background: var(--accent-soft);
+}
+
+.dropdown__option[aria-selected="true"] {
+  color: var(--accent);
+}

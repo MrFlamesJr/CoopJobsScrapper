@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Spinner from "./Spinner.jsx";
 import SlideToConfirm from "./SlideToConfirm.jsx";
+import DatabasePanel from "./DatabasePanel.jsx";
+import InfoDot from "./InfoDot.jsx";
 import useScrapeRate from "../hooks/useScrapeRate.js";
 import { totalPercent, pagePercent, incompleteRun, runPageLabel } from "../scrapeProgress.js";
 import { downloadDebugBundle, openExtensionsPage } from "../api.js";
 import { EDGE_STORE_URL, EXTENSION_ZIP_URL, detectBrowser } from "../extensionInfo.js";
 import "./ScraperDialog.css";
+
+// The dialog's two tabs, in order -- also the roving-tabindex/arrow-key
+// sequence (see handleTabKeyDown).
+const TABS = [
+  { key: "scraper", label: "Scraper" },
+  { key: "database", label: "Database" },
+];
 
 const STEPS = [
   { key: "starting", label: "Opening browser" },
@@ -77,6 +86,17 @@ function incompleteHeadline(run) {
     default:
       return `The last scrape was aborted on ${where}.`;
   }
+}
+
+/** Format tooltip text for skipped/failed jobs: list up to 10 items, then "and N more". */
+function formatCountTooltip(items, formatter) {
+  if (!items || items.length === 0) return "";
+  const shown = items.slice(0, 10);
+  const lines = shown.map(formatter);
+  if (items.length > 10) {
+    lines.push(`and ${items.length - 10} more`);
+  }
+  return lines.join("\n");
 }
 
 /** A small horizontal-line glyph, the usual "minimize to background" icon. */
@@ -157,23 +177,7 @@ function PageDonut({ status }) {
 const DEVELOPER_MODE_TIP =
   "Chrome and Edge only allow extensions from their stores. Developer mode is the switch that also lets you load one from a folder. " +
   "Nothing else about your browsing changes, and you can switch it back off once it's installed. Chrome may nag you about it at startup. " +
-  "Like any extension, it can read the pages it's allowed to — here that's the co-op portal and this site, nothing else. The zip holds all of its code, and you can remove it any time.";
-
-/** A small "i" that shows `tip` on hover/focus, via the app's TooltipLayer. */
-function InfoDot({ tip, label }) {
-  return (
-    <span
-      className="scraper-dialog__info-dot"
-      data-tooltip={tip}
-      data-tooltip-placement="top-start"
-      tabIndex={0}
-      role="note"
-      aria-label={`${label}: ${tip}`}
-    >
-      i
-    </span>
-  );
-}
+  "Like any extension, it can read the pages it's allowed to. Here that's the co-op portal and this site, nothing else. The zip holds all of its code, and you can remove it any time.";
 
 /** "chrome://extensions" (or "edge://extensions"): a browser-internal URL
     can't be turned into a working link from a web page, so it's shown as
@@ -226,7 +230,13 @@ function InstallSteps({ browser, canOpen }) {
       </li>
       <li>
         Turn on <strong>Developer mode</strong> (top right){" "}
-        <InfoDot tip={DEVELOPER_MODE_TIP} label="Why Developer mode is needed" />
+        <InfoDot
+          tip={DEVELOPER_MODE_TIP}
+          label="Why Developer mode is needed"
+          long
+          placement="top-start"
+          className="scraper-dialog__info-dot"
+        />
       </li>
       <li>
         Click <strong>Load unpacked</strong> and select the unzipped folder.
@@ -239,13 +249,21 @@ function InstallSteps({ browser, canOpen }) {
     "Update the extension" (extension === "outdated"), shown before the Start
     button. Browsing an imported database never needs any of this -- only
     starting a scrape does. */
-function ExtensionGate({ variant, browser, onRecheck }) {
+function ExtensionGate({ variant, browser }) {
   const blocked = variant === "missing" && browser === "other";
   return (
     <div className="scraper-dialog__install">
       <h3 className="scraper-dialog__install-title">
         {variant === "outdated" ? "Update the extension" : "Step 1 – Install the CoopJobs extension"}
       </h3>
+      {variant === "outdated" && (
+        <div className="scraper-dialog__callout" role="note">
+          <span className="scraper-dialog__callout-icon" aria-hidden="true">
+            ⚠
+          </span>
+          <span><strong>Your extension is out of date.</strong> Download the new version below and install it again to keep scraping.</span>
+        </div>
+      )}
       {browser === "other" && (
         <div className="scraper-dialog__callout" role="note">
           <span className="scraper-dialog__callout-icon" aria-hidden="true">
@@ -257,7 +275,7 @@ function ExtensionGate({ variant, browser, onRecheck }) {
 
       {blocked ? (
         <p className="scraper-dialog__muted">
-          Scraping isn't available in this browser. Browsing an imported database still works —
+          Scraping isn't available in this browser. Browsing an imported database still works.
           use "Open database" above to load a <code>.db</code> file.
         </p>
       ) : (
@@ -289,22 +307,29 @@ function ExtensionGate({ variant, browser, onRecheck }) {
             <InstallSteps browser={browser} canOpen={variant === "outdated"} />
           )}
 
-          <button type="button" className="scraper-dialog__secondary" onClick={onRecheck}>
-            {variant === "outdated" ? "I updated it – check again" : "I installed it – check again"}
-          </button>
+          <p className="scraper-dialog__reload-note"><strong>{variant === "outdated" ? "Once you've updated the extension, reload this page." : "Once you've installed the extension, reload this page."}</strong></p>
         </>
       )}
     </div>
   );
 }
 
-export default function ScraperDialog({ open, onClose, scraper, onJobsChanged }) {
+export default function ScraperDialog({
+  open,
+  onClose,
+  scraper,
+  onJobsChanged,
+  onDatabaseImported,
+  statusChipRef,
+}) {
   const dialogRef = useRef(null);
   const keepScrapingRef = useRef(null);
   const lastStepRef = useRef(0);
+  const tabRefs = useRef({});
   const { status, connection, extension, recheckExtension, start, cancel, deleteAll } = scraper;
   const browser = useMemo(() => detectBrowser(), []);
 
+  const [activeTab, setActiveTab] = useState("scraper");
   const [localError, setLocalError] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmingStop, setConfirmingStop] = useState(false);
@@ -321,8 +346,32 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      // The dialog's CSS animates in from a transform origin expressed as
+      // --origin-x/--origin-y, which default to 50% (the viewport centre,
+      // where a modal <dialog> always sits via the UA's margin: auto). A
+      // modal dialog has no box until it's shown, so it can't be measured --
+      // but the status chip's own centre can be expressed as an offset from
+      // that (as-yet-unknown) centre without ever measuring the dialog
+      // itself. This must happen before showModal(), or the @starting-style
+      // first frame scales from the centre and visibly jumps once the real
+      // origin is applied a frame later.
+      const t = statusChipRef?.current?.getBoundingClientRect();
+      if (t) {
+        const dx = Math.round(t.left + t.width / 2 - window.innerWidth / 2);
+        const dy = Math.round(t.top + t.height / 2 - window.innerHeight / 2);
+        dialog.style.setProperty("--origin-x", `calc(50% + ${dx}px)`);
+        dialog.style.setProperty("--origin-y", `calc(50% + ${dy}px)`);
+      }
+      dialog.showModal();
+    }
     if (!open && dialog.open) dialog.close();
+  }, [open, statusChipRef]);
+
+  // Always opens back on the Scraper tab -- Database is a quick errand
+  // (export/back up/open), not somewhere to land on the next open.
+  useEffect(() => {
+    if (open) setActiveTab("scraper");
   }, [open]);
 
   useEffect(() => {
@@ -357,8 +406,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
   }, [confirmingStop]);
 
   // Refocusing the tab is the moment a user comes back from installing the
-  // extension in a new tab -- no reload needed, same as the "check again"
-  // button (plan §1 step 2).
+  // extension in a new tab, which auto-rechecks its status.
   useEffect(() => {
     if (!open) return undefined;
     const handleFocus = () => recheckExtension();
@@ -393,6 +441,22 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
     if (e.target === dialogRef.current) dialogRef.current.close();
   };
 
+  // Roving-tabindex arrow-key navigation between the two tabs (Home/End jump
+  // to the ends; Left/Right wrap around, matching the usual tablist pattern).
+  const handleTabKeyDown = (e) => {
+    const currentIndex = TABS.findIndex((tab) => tab.key === activeTab);
+    let nextIndex = null;
+    if (e.key === "ArrowRight") nextIndex = (currentIndex + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") nextIndex = (currentIndex - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") nextIndex = 0;
+    else if (e.key === "End") nextIndex = TABS.length - 1;
+    if (nextIndex === null) return;
+    e.preventDefault();
+    const nextTab = TABS[nextIndex];
+    setActiveTab(nextTab.key);
+    tabRefs.current[nextTab.key]?.focus();
+  };
+
   const handleStart = async () => {
     setLocalError(null);
     try {
@@ -415,6 +479,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
       setStopping(false);
     }
   };
+
 
   const handleDownloadDebug = async () => {
     setDebugDownloading(true);
@@ -465,25 +530,67 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
   );
 
   return (
-    <dialog ref={dialogRef} className="scraper-dialog" aria-label="Scraper" onClick={handleBackdropClick}>
+    <dialog ref={dialogRef} className="scraper-dialog" aria-label="Data" onClick={handleBackdropClick}>
       <div className="scraper-dialog__header">
-        <h2>Scraper</h2>
+        <h2>Data</h2>
         <button
           type="button"
           className="scraper-dialog__close"
           onClick={() => dialogRef.current?.close()}
           aria-label={running ? "Minimize" : "Close"}
-          title={running ? "Minimize — the scrape keeps running in the background" : "Close"}
+          title={running ? "Minimize. The scrape keeps running in the background." : "Close"}
         >
           {running ? <MinimizeIcon /> : "×"}
         </button>
       </div>
 
-      <div className="scraper-dialog__body">
+      <div className="scraper-dialog__tabs" role="tablist" aria-label="Data sections" onKeyDown={handleTabKeyDown}>
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            ref={(el) => {
+              tabRefs.current[tab.key] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`scraper-dialog-tab-${tab.key}`}
+            aria-selected={activeTab === tab.key}
+            aria-controls={`scraper-dialog-panel-${tab.key}`}
+            tabIndex={activeTab === tab.key ? 0 : -1}
+            className="scraper-dialog__tab"
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className="scraper-dialog__body"
+        role="tabpanel"
+        id="scraper-dialog-panel-database"
+        aria-labelledby="scraper-dialog-tab-database"
+        hidden={activeTab !== "database"}
+      >
+        <DatabasePanel
+          jobCount={status?.job_count ?? 0}
+          scraperRunning={running}
+          onDatabaseImported={onDatabaseImported}
+          onGoToScraperTab={() => setActiveTab("scraper")}
+        />
+      </div>
+
+      <div
+        className="scraper-dialog__body"
+        role="tabpanel"
+        id="scraper-dialog-panel-scraper"
+        aria-labelledby="scraper-dialog-tab-scraper"
+        hidden={activeTab !== "scraper"}
+      >
         {!status && <p className="scraper-dialog__muted">Loading status…</p>}
 
         {status && connection === "reconnecting" && extension === "ready" && (
-          <p className="scraper-dialog__muted">Lost contact with the extension — reconnecting…</p>
+          <p className="scraper-dialog__muted">Lost contact with the extension, reconnecting…</p>
         )}
 
         {status && !running && (
@@ -520,7 +627,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
               <div className="scraper-dialog__report">
                 {state === "completed" && (
                   <p className="scraper-dialog__success">
-                    Scrape complete — {fmt(status.jobs_saved)} jobs saved.
+                    Scrape complete. {fmt(status.jobs_saved)} jobs saved.
                   </p>
                 )}
                 {/* Nothing for "cancelled": the amber callout above already
@@ -534,27 +641,76 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                     <dt>Duration</dt>
                     <dd>{formatDuration(status.started_at, status.finished_at) || "—"}</dd>
                   </div>
-                  <div>
-                    <dt>Pages</dt>
-                    <dd>
-                      {fmt(status.pages_completed)}
-                      {status.total_pages ? ` of ${fmt(status.total_pages)}` : ""}
-                    </dd>
-                  </div>
+                  {/* Only when the run stopped short: after a full scrape
+                      "50 of 50" says nothing, so the stat is dropped. */}
+                  {status.total_pages > 0 && status.pages_completed < status.total_pages && (
+                    <div>
+                      <dt>Pages</dt>
+                      <dd className="scraper-dialog__warn">
+                        {fmt(status.pages_completed)} of {fmt(status.total_pages)}
+                      </dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Saved</dt>
                     <dd>{fmt(status.jobs_saved)}</dd>
                   </div>
                   <div>
                     <dt>Retries</dt>
-                    <dd>{fmt(status.retries)}</dd>
+                    <dd>
+                      {status.retry_events && status.retry_events.length > 0 ? (
+                        <span
+                          className="scraper-dialog__hoverable-count"
+                          data-tooltip={formatCountTooltip(status.retry_events, (e) => e)}
+                          tabIndex={0}
+                        >
+                          {fmt(status.retries)}
+                        </span>
+                      ) : (
+                        fmt(status.retries)
+                      )}
+                    </dd>
                   </div>
                   <div>
                     <dt>Skipped</dt>
                     <dd className={status.anomalies > 0 ? "scraper-dialog__bad" : ""}>
-                      {fmt(status.anomalies)}
+                      {status.failed_jobs && status.failed_jobs.length > 0 ? (
+                        <span
+                          className="scraper-dialog__hoverable-count"
+                          data-tooltip={formatCountTooltip(
+                            status.failed_jobs,
+                            (job) => `${job.title || "Untitled"} · ${job.employer || "Unknown employer"} (page ${job.page})`
+                          )}
+                          tabIndex={0}
+                        >
+                          {fmt(status.anomalies)}
+                        </span>
+                      ) : (
+                        fmt(status.anomalies)
+                      )}
                     </dd>
                   </div>
+                  {status.duplicates > 0 && (
+                    <div>
+                      <dt>Duplicates</dt>
+                      <dd>
+                        {status.duplicate_jobs && status.duplicate_jobs.length > 0 ? (
+                          <span
+                            className="scraper-dialog__hoverable-count"
+                            data-tooltip={formatCountTooltip(
+                              status.duplicate_jobs,
+                              (job) => `${job.title || "Untitled"} · ${job.employer || "Unknown employer"} (#${job.job_number}, page ${job.page}) was already saved`
+                            )}
+                            tabIndex={0}
+                          >
+                            {fmt(status.duplicates)}
+                          </span>
+                        ) : (
+                          fmt(status.duplicates)
+                        )}
+                      </dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Speed</dt>
                     <dd>{rate.averageText || "—"}</dd>
@@ -562,16 +718,31 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                 </dl>
 
                 {failedJobs.length > 0 ? (
-                  <ul className="scraper-dialog__failed-list">
-                    {failedJobs.map((job, i) => (
-                      <li key={i}>
-                        <span className="scraper-dialog__failed-page">page {job.page}</span>
-                        {job.title || "Untitled"} · {job.employer || "Unknown employer"}
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="scraper-dialog__failed">
+                    {/* These are the jobs the scraper saw but could not save,
+                        which is what the "Skipped" stat counts. */}
+                    <p className="scraper-dialog__failed-title">
+                      Skipped <span className="scraper-dialog__failed-count">{fmt(failedJobs.length)}</span>
+                    </p>
+                    <ul className="scraper-dialog__failed-list">
+                      {failedJobs.map((job, i) => (
+                        <li key={i}>
+                          <span className="scraper-dialog__failed-job">
+                            {job.title || "Untitled"} · {job.employer || "Unknown employer"}
+                          </span>
+                          <span className="scraper-dialog__failed-page">p{job.page}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ) : (
-                  <p className="scraper-dialog__success">All jobs scraped, 0 skipped.</p>
+                  // Only a run that finished on its own can claim nothing was
+                  // skipped. A cancelled, interrupted or failed run has pages it
+                  // never reached, so an empty skip list proves nothing; the
+                  // amber callout above already says where it stopped.
+                  state === "completed" && (
+                    <p className="scraper-dialog__success">All jobs scraped, 0 skipped.</p>
+                  )
                 )}
 
                 {(status.anomalies > 0 || state === "failed") && (
@@ -601,7 +772,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
             )}
 
             {(extension === "missing" || extension === "outdated") && (
-              <ExtensionGate variant={extension} browser={browser} onRecheck={recheckExtension} />
+              <ExtensionGate variant={extension} browser={browser} />
             )}
 
             {!(extension === "missing" && browser === "other") && (
@@ -634,16 +805,6 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
               </>
             )}
 
-            {state === "completed" && (
-              <button
-                type="button"
-                className="scraper-dialog__secondary"
-                onClick={() => dialogRef.current?.close()}
-              >
-                View jobs
-              </button>
-            )}
-
             {localError && <p className="scraper-dialog__error">{localError}</p>}
           </>
         )}
@@ -668,8 +829,7 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                 </span>
                 <span>
                   <strong>Don't click around in the scraper's browser window.</strong> It can cause
-                  errors or skipped jobs. You can keep using this page, and it's fine to resize or
-                  minimize that window.
+                  errors or skipped jobs.
                 </span>
               </div>
             )}
@@ -738,14 +898,56 @@ export default function ScraperDialog({ open, onClose, scraper, onJobsChanged })
                 <strong>{fmt(status.jobs_saved)}</strong> saved
               </span>
               <span>
-                <strong>{fmt(status.retries)}</strong> retries
+                {status.retry_events && status.retry_events.length > 0 ? (
+                  <span
+                    className="scraper-dialog__hoverable-count"
+                    data-tooltip={formatCountTooltip(status.retry_events, (e) => e)}
+                    tabIndex={0}
+                  >
+                    <strong>{fmt(status.retries)}</strong> retries
+                  </span>
+                ) : (
+                  <>
+                    <strong>{fmt(status.retries)}</strong> retries
+                  </>
+                )}
               </span>
               <span className={status.failed > 0 ? "scraper-dialog__bad" : ""}>
-                <strong>{fmt(status.failed)}</strong> skipped
+                {status.failed_jobs && status.failed_jobs.length > 0 ? (
+                  <span
+                    className="scraper-dialog__hoverable-count"
+                    data-tooltip={formatCountTooltip(
+                      status.failed_jobs,
+                      (job) => `${job.title || "Untitled"} · ${job.employer || "Unknown employer"} (page ${job.page})`
+                    )}
+                    tabIndex={0}
+                  >
+                    <strong>{fmt(status.failed)}</strong> skipped
+                  </span>
+                ) : (
+                  <>
+                    <strong>{fmt(status.failed)}</strong> skipped
+                  </>
+                )}
               </span>
               {status.duplicates > 0 && (
                 <span>
-                  <strong>{fmt(status.duplicates)}</strong> duplicates
+                  {status.duplicate_jobs && status.duplicate_jobs.length > 0 ? (
+                    <span
+                      className="scraper-dialog__hoverable-count"
+                      data-tooltip={formatCountTooltip(
+                        status.duplicate_jobs,
+                        (job) => `${job.title || "Untitled"} · ${job.employer || "Unknown employer"} (#${job.job_number}, page ${job.page}) was already saved`
+                      )}
+                      tabIndex={0}
+                    >
+                      <strong>{fmt(status.duplicates)}</strong> duplicates
+                    </span>
+                  ) : (
+                    <>
+                      <strong>{fmt(status.duplicates)}</strong> duplicates
+                    </>
+                  )}
                 </span>
               )}
             </div>

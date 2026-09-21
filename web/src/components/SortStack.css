@@ -1,0 +1,119 @@
+/* Compact layered stack: one ~26px row per active sort, so a handful of
+   sort keys still barely dents the sidebar's vertical space. */
+.sort-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sort-stack__row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 26px;
+  padding: 0 0.35rem;
+  background: var(--sidebar-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  touch-action: none;
+}
+
+.sort-stack__row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sort-stack__row--dragging {
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  border-color: var(--accent);
+  cursor: grabbing;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.sort-stack__handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 100%;
+  color: var(--muted);
+}
+
+.sort-stack__handle svg {
+  width: 12px;
+  height: 12px;
+}
+
+.sort-stack__row:hover .sort-stack__handle {
+  color: var(--text);
+}
+
+.sort-stack__field {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sort-stack__dir {
+  flex: 0 0 auto;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 0.2rem 0.45rem;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.sort-stack__dir:hover,
+.sort-stack__dir:focus-visible {
+  color: var(--accent);
+  border-color: var(--border-hover);
+}
+
+.sort-stack__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: var(--muted);
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.sort-stack__remove svg {
+  width: 9px;
+  height: 9px;
+}
+
+.sort-stack__remove:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.sort-stack__remove:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.dropdown__trigger.sort-stack__add {
+  border-style: dashed;
+}

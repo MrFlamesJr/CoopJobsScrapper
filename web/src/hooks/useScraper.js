@@ -77,6 +77,27 @@ export function useScraper({ onFinished } = {}) {
     }
   }, []);
 
+  // Like applyStatus, but replaces the entire status instead of merging.
+  // Used by deleteAll to clear stale report fields (finished_at, jobs_saved,
+  // pages_completed, etc.) that would otherwise persist from the previous run.
+  // Keeps all the same bookkeeping: version check, ref tracking, error clear.
+  const resetStatus = useCallback((data) => {
+    devLogStatus(data);
+    if (typeof data.version === "number") {
+      if (data.version < lastVersionRef.current) return;
+      lastVersionRef.current = data.version;
+    }
+    const prev = prevStateRef.current;
+    prevStateRef.current = data.state;
+    // Replaced, not merged: this is used to reset after deleteAll.
+    setStatus(data);
+    statusRef.current = data;
+    setError(null);
+    if (prev && isRunning(prev) && !isRunning(data.state)) {
+      onFinishedRef.current?.(data);
+    }
+  }, []);
+
   // Kept for the one-off refresh after deleteAll: clearing the table changes
   // job_count without any runner event, so the subscription stays silent.
   const loadStatus = useCallback(async () => {
@@ -145,11 +166,22 @@ export function useScraper({ onFinished } = {}) {
     return data;
   }, [applyStatus]);
 
+  const resetToIdle = useCallback(async () => {
+    resetStatus(await refreshScraperStatus({ state: "idle" }));
+  }, [resetStatus]);
+
   const deleteAll = useCallback(async () => {
     const result = await deleteAllJobs();
-    await loadStatus();
+    // Deliberately not loadStatus(): refreshScraperStatus() does not ask the
+    // extension for anything, it only re-enriches the status object it is
+    // handed. Using resetStatus() instead of applyStatus() ensures the
+    // finished run's report fields (finished_at, jobs_saved, retries, events)
+    // are fully cleared, not merged over. deleteAllJobs() has already
+    // waited for the extension's reset ack, so idle is the truth now; the
+    // extension's next pushed snapshot (higher version) confirms it.
+    await resetToIdle();
     return result;
-  }, [loadStatus]);
+  }, [resetToIdle]);
 
   return {
     status,
@@ -160,6 +192,7 @@ export function useScraper({ onFinished } = {}) {
     start,
     cancel,
     deleteAll,
+    resetToIdle,
     refresh: loadStatus,
     isRunning,
   };
